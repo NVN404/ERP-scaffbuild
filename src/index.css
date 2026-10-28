@@ -422,20 +422,20 @@ code, .mono {
 
 .grid-4 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1.15rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 1rem;
 }
 
 .grid-3 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 1rem;
 }
 
 .grid-2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 1rem;
 }
 
 /* Forms */
@@ -834,20 +834,124 @@ code, .mono {
 }
 
 @media (max-width: 768px) {
+  html, body {
+    font-size: 14.5px;
+  }
+
   .desktop-only-tabs {
     display: none !important;
   }
+
   .mobile-bottom-nav {
     display: flex !important;
   }
+
   .main-content {
-    padding: 1rem 1rem 5.5rem !important;
+    padding: 0.5rem 0.5rem 5.5rem !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    box-sizing: border-box !important;
+  }
+
+  .app-container {
+    width: 100% !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Force grids to single column on small screens to eliminate horizontal scrolling */
+  .grid-2, .grid-3 {
+    grid-template-columns: 1fr !important;
+    gap: 0.75rem !important;
+  }
+
+  .grid-4 {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)) !important;
+    gap: 0.65rem !important;
+  }
+
+  /* Cards responsive padding */
+  .card {
+    padding: 1rem 0.85rem !important;
+    border-radius: var(--radius-md) !important;
+  }
+
+  /* Modals on Mobile - Bottom Sheet style */
+  .modal-overlay {
+    padding: 0.4rem !important;
+    align-items: flex-end !important;
+    justify-content: center !important;
+  }
+
+  .modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 94vh !important;
+    border-radius: 18px 18px 10px 10px !important;
+    margin: 0 !important;
+  }
+
+  .modal-header {
+    padding: 0.85rem 1rem !important;
+  }
+
+  .modal-body {
+    padding: 0.85rem 0.85rem !important;
+  }
+
+  /* Tables horizontal scroll container */
+  .table-responsive {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    display: block !important;
+  }
+
+  /* Input fields and buttons mobile sizing */
+  .form-input, .form-select, .form-textarea {
+    font-size: 16px !important; /* Prevents auto-zoom on iOS & Android WebViews */
+    padding: 0.6rem 0.75rem !important;
+  }
+
+  .form-group {
+    margin-bottom: 0.75rem !important;
+  }
+
+  .btn {
+    padding: 0.5rem 0.85rem !important;
+  }
+
+  /* Top Navbar */
+  .top-navbar {
+    padding: 0.5rem 0.75rem !important;
+  }
+
+  .role-banner-bar {
+    padding: 0.35rem 0.65rem !important;
   }
 }
 
 @media (max-width: 480px) {
   .hide-on-small-mobile {
     display: none !important;
+  }
+
+  .main-content {
+    padding: 0.4rem 0.35rem 5.5rem !important;
+  }
+
+  .grid-4 {
+    grid-template-columns: 1fr !important;
+  }
+
+  .modal-overlay {
+    padding: 0 !important;
+  }
+
+  .modal-content {
+    border-radius: 16px 16px 0 0 !important;
+    max-height: 96vh !important;
   }
 }
 

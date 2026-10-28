@@ -1,8 +1,6 @@
 -- ==============================================================================
 -- ScaffBuild ERP - Supabase PostgreSQL Schema with Row-Level Security (RLS)
 -- Safe to run multiple times (Idempotent script)
--- Run this script in your Supabase SQL Editor:
--- https://supabase.com/dashboard/project/broslcfmpukjnfdcyfxx/sql
 -- ==============================================================================
 
 -- 1. Create custom user profiles table linked to Supabase Auth
@@ -29,26 +27,40 @@ drop policy if exists "Owner can view all profiles" on public.profiles;
 drop policy if exists "Users can update own profile" on public.profiles;
 drop policy if exists "Users can insert own profile" on public.profiles;
 drop policy if exists "Public profiles read" on public.profiles;
+drop policy if exists "Authenticated profiles read" on public.profiles;
 
--- 4. Re-create RLS Policies (Clean, recursion-free):
-create policy "Public profiles read"
+-- 4. Re-create RLS Policies:
+-- Only authenticated users can read profiles (prevents anonymous scraping of private contact & GST info)
+create policy "Authenticated profiles read"
   on public.profiles for select
+  to authenticated
   using ( true );
 
 -- Users can update their own profile
 create policy "Users can update own profile"
   on public.profiles for update
+  to authenticated
   using ( auth.uid() = id );
 
 -- Users can insert their own profile
 create policy "Users can insert own profile"
   on public.profiles for insert
+  to authenticated
   with check ( auth.uid() = id );
 
 -- 5. Automatically create a public.profile entry when a new auth.user signs up
+-- SECURED: Prevents unauthorized privilege escalation to 'owner' via self-registration
 create or replace function public.handle_new_user()
 returns trigger as $$
+declare
+  assigned_role text;
 begin
+  assigned_role := coalesce(new.raw_user_meta_data->>'role', 'client');
+  -- Security guard: Self-signup can only register as 'client' or 'worker'
+  if assigned_role not in ('client', 'worker') then
+    assigned_role := 'client';
+  end if;
+
   insert into public.profiles (
     id, 
     email, 
@@ -63,7 +75,7 @@ begin
   values (
     new.id,
     new.email,
-    coalesce(new.raw_user_meta_data->>'role', 'client'),
+    assigned_role,
     coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
     new.raw_user_meta_data->>'phone',
     new.raw_user_meta_data->>'companyName',
@@ -73,12 +85,11 @@ begin
   )
   on conflict (id) do update set
     email = excluded.email,
-    role = excluded.role,
-    name = excluded.name,
-    phone = excluded.phone,
-    company_name = excluded.company_name,
-    gstin = excluded.gstin,
-    trade = excluded.trade,
+    name = coalesce(excluded.name, profiles.name),
+    phone = coalesce(excluded.phone, profiles.phone),
+    company_name = coalesce(excluded.company_name, profiles.company_name),
+    gstin = coalesce(excluded.gstin, profiles.gstin),
+    trade = coalesce(excluded.trade, profiles.trade),
     updated_at = now();
   return new;
 end;
@@ -89,95 +100,3 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
-
--- ==============================================================================
--- 6. Insert User: tempory2911@gmail.com / Password: polopolo
--- ==============================================================================
-create extension if not exists pgcrypto;
-
-DO $$
-DECLARE
-  v_user_id uuid;
-BEGIN
-  -- 1. Check if user already exists in auth.users
-  SELECT id INTO v_user_id FROM auth.users WHERE email = 'tempory2911@gmail.com';
-
-  IF v_user_id IS NOT NULL THEN
-    -- Update existing user with confirmed email and password 'polopolo'
-    UPDATE auth.users
-    SET 
-      encrypted_password = crypt('polopolo', gen_salt('bf')),
-      email_confirmed_at = coalesce(email_confirmed_at, now()),
-      raw_app_meta_data = jsonb_build_object('provider', 'email', 'providers', array['email']),
-      raw_user_meta_data = jsonb_build_object(
-        'role', 'client',
-        'name', 'Temporary Client',
-        'companyName', 'Temporary Construction Ltd',
-        'phone', '+91 98200 99999'
-      ),
-      updated_at = now()
-    WHERE id = v_user_id;
-  ELSE
-    -- Generate new UUID and insert new user into auth.users
-    v_user_id := gen_random_uuid();
-
-    INSERT INTO auth.users (
-      id,
-      instance_id,
-      email,
-      encrypted_password,
-      email_confirmed_at,
-      raw_app_meta_data,
-      raw_user_meta_data,
-      created_at,
-      updated_at,
-      role,
-      aud
-    ) VALUES (
-      v_user_id,
-      '00000000-0000-0000-0000-000000000000',
-      'tempory2911@gmail.com',
-      crypt('polopolo', gen_salt('bf')),
-      now(),
-      jsonb_build_object('provider', 'email', 'providers', array['email']),
-      jsonb_build_object(
-        'role', 'client',
-        'name', 'Temporary Client',
-        'companyName', 'Temporary Construction Ltd',
-        'phone', '+91 98200 99999'
-      ),
-      now(),
-      now(),
-      'authenticated',
-      'authenticated'
-    );
-  END IF;
-
-  -- 2. Insert or update corresponding profile in public.profiles
-  INSERT INTO public.profiles (
-    id,
-    email,
-    role,
-    name,
-    phone,
-    company_name,
-    created_at,
-    updated_at
-  ) VALUES (
-    v_user_id,
-    'tempory2911@gmail.com',
-    'client',
-    'Temporary Client',
-    '+91 98200 99999',
-    'Temporary Construction Ltd',
-    now(),
-    now()
-  )
-  ON CONFLICT (id) DO UPDATE SET
-    email = excluded.email,
-    role = excluded.role,
-    name = excluded.name,
-    company_name = excluded.company_name,
-    phone = excluded.phone,
-    updated_at = now();
-END $$;

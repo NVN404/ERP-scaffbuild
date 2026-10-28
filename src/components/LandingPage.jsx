@@ -26,7 +26,8 @@ import {
 
 export default function LandingPage({ 
   onOpenAuth, 
-  onQuickAdminLogin 
+  onQuickAdminLogin,
+  onQuickClientLogin
 }) {
   const [activeFaq, setActiveFaq] = useState(null);
 
@@ -172,8 +173,27 @@ export default function LandingPage({
               onClick={onQuickAdminLogin}
             >
               <Zap size={18} style={{ color: '#fbbf24' }} />
-              <span>Quick Owner Demo (santosh)</span>
+              <span>Quick Owner Demo</span>
             </button>
+
+            {onQuickClientLogin && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{
+                  padding: '0.9rem 1.65rem',
+                  fontSize: '0.95rem',
+                  fontWeight: 700,
+                  background: 'rgba(37, 99, 235, 0.2)',
+                  color: '#60a5fa',
+                  borderColor: 'rgba(96, 165, 250, 0.4)',
+                  borderRadius: 'var(--radius-lg)'
+                }}
+                onClick={onQuickClientLogin}
+              >
+                <span>🏢 Quick Client Demo (ASG Win)</span>
+              </button>
+            )}
 
             <a
               href="/shuttering-erp-debug.apk"
@@ -454,8 +474,8 @@ export default function LandingPage({
 
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: '1.5rem'
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
+          gap: '1.25rem'
         }}>
           
           {/* Feature 1 */}
@@ -555,7 +575,7 @@ export default function LandingPage({
             </p>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '1.25rem' }}>
             
             {/* Owner Box */}
             <div style={{
@@ -695,8 +715,8 @@ export default function LandingPage({
 
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: '1.5rem'
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
+          gap: '1.25rem'
         }}>
           {/* Authentic ScaffBuild Format */}
           <div style={{

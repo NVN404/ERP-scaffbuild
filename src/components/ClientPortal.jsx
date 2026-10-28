@@ -33,18 +33,37 @@ import {
   Printer,
   Search,
   FileDown,
-  CreditCard
+  CreditCard,
+  Settings,
+  Package,
+  Receipt,
+  Bell,
+  Mail,
+  MailOpen,
+  Inbox
 } from 'lucide-react';
+import ClientThreeDotMenu from './ClientThreeDotMenu';
+import MoreSettingsPage from './MoreSettingsPage';
 
 export default function ClientPortal({ 
   currentUser, 
+  setCurrentUser,
   users, 
   setUsers, 
   quotations, 
   setQuotations, 
   workerLogs, 
   setWorkerLogs,
-  company 
+  company,
+  setCompany,
+  inventory,
+  setInventory,
+  challans,
+  invoices,
+  onLogout,
+  onOpenSettings,
+  currentLanguage,
+  setCurrentLanguage
 }) {
   // Navigation: Separate pages like slides as nav bar
   // 'request': Request Quotation Slide
@@ -216,18 +235,20 @@ export default function ClientPortal({
     siteEngineer: currentUser?.name || 'Site In-Charge',
     phone: currentUser?.phone || '+91 98200 99999',
     slabAreaSqft: 18500,
-    dueAmount: 62500,
+    dueAmount: 0,
     totalPcs: 65,
     ratePerSqft: 3,
     balanceAreaSqft: 25000,
     badgeType: 'Sqft Area Mix'
   });
 
-  // Quotation Request Form State
-  const defaultSiteName = currentUser?.sites?.[0]?.name || 'ICON MICASA JIGANI BOMMAANDRA LINK ROAD';
+  // Quotation Request Form State (Mandatory Company, Building, GST as per user requirements)
+  const defaultSiteName = currentUser?.sites?.[0]?.name || '';
 
   const [quotationRequest, setQuotationRequest] = useState({
+    companyName: currentUser?.companyName || '',
     siteName: defaultSiteName,
+    gstin: currentUser?.gstin || '',
     workPurpose: 'Slab Staging & Shuttering',
     lengthFt: 100,
     breadthFt: 120,
@@ -241,6 +262,67 @@ export default function ClientPortal({
     ],
     notes: 'Require shuttering material for slab casting. Please include transport & erection quote.'
   });
+
+  // Dropdown Form toggle for Projects Tab (collapses back to normal after submit)
+  const [isQuotationDropdownOpen, setIsQuotationDropdownOpen] = useState(false);
+
+  // Sub-tabs inside Approvals Slide: 'pending', 'quotations', 'labour', 'notifications'
+  const [notificationsActiveTab, setNotificationsActiveTab] = useState('pending');
+
+  // System Notifications Feed State (renamed from mail to notifications as requested)
+  const [notificationFilter, setNotificationFilter] = useState('ALL'); // 'ALL' or 'UNREAD'
+  const [systemNotifications, setSystemNotifications] = useState([
+    {
+      id: 'notif_1',
+      title: 'Quotation Rate Proposal Available',
+      body: 'Yard admin has reviewed your equipment quotation for Tower B & C. Please review commercial rates and issue work order.',
+      sender: 'ScaffBuild Yard Dispatch',
+      category: 'Quotation',
+      time: '15 mins ago',
+      date: new Date().toISOString().slice(0, 10),
+      isRead: false
+    },
+    {
+      id: 'notif_2',
+      title: 'Daily Labour Work Log Submitted for Approval',
+      body: 'Worker Gang Leader Sunil Kumar submitted Slab Shuttering & Prop Staging (1,500 Sq.Ft) for certification.',
+      sender: 'Site Supervisor Sunil',
+      category: 'Labour',
+      time: '2 hours ago',
+      date: new Date().toISOString().slice(0, 10),
+      isRead: false
+    },
+    {
+      id: 'notif_3',
+      title: 'Material Delivery Dispatched - Truck MH-46-BB-3421',
+      body: 'Delivery Challan DC0003 with 45 Pcs scaffolding equipment is en route to site location.',
+      sender: 'Yard Logistics Team',
+      category: 'Dispatch',
+      time: 'Yesterday',
+      date: new Date(Date.now() - 86400000).toISOString().slice(0, 10),
+      isRead: true
+    },
+    {
+      id: 'notif_4',
+      title: 'GST Tax Invoice Generated',
+      body: 'Monthly rental invoice for equipment staging has been generated under Rule 46 compliance.',
+      sender: 'Billing & Accounts',
+      category: 'Invoice',
+      time: '3 days ago',
+      date: new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10),
+      isRead: true
+    }
+  ]);
+
+  const unreadNotificationCount = systemNotifications.filter(n => !n.isRead).length;
+
+  const toggleNotificationReadStatus = (notifId) => {
+    setSystemNotifications(prev => prev.map(n => n.id === notifId ? { ...n, isRead: !n.isRead } : n));
+  };
+
+  const markAllNotificationsAsRead = () => {
+    setSystemNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+  };
 
   // Collapsible toggle for Estimated Items Needed (Optional in dropdown)
   const [showEstimatedItems, setShowEstimatedItems] = useState(false);
@@ -261,8 +343,9 @@ export default function ClientPortal({
   const [selectedLogToApprove, setSelectedLogToApprove] = useState(null);
   const [approvalComment, setApprovalComment] = useState('Work inspected and certified as per site structural layout.');
 
-  // Labour Work, Billing & Approvals Section State
-  const [labourBillingActiveSubTab, setLabourBillingActiveSubTab] = useState('all'); // 'all', 'pending', 'approved', 'billing'
+  // Labour Work & Approvals Section State
+  const [labourBillingActiveSubTab, setLabourBillingActiveSubTab] = useState('pending'); // 'pending', 'approved', 'all'
+  const [billsViewFilter, setBillsViewFilter] = useState('all'); // 'all', 'material', 'labour'
   const [labourRatePerSqft, setLabourRatePerSqft] = useState(18); // default ₹18 per Sq.Ft
   const [labourManDayRate, setLabourManDayRate] = useState(850); // default ₹850 per worker day
   const [labourBillingBasis, setLabourBillingBasis] = useState('sqft'); // 'sqft' or 'manday'
@@ -281,18 +364,20 @@ export default function ClientPortal({
     autoApprove: true
   });
 
-  // Default Project Sites matching screenshot (ICON MICASA + GREEN Wood High School + Main Project Site)
+  // Default Project Sites grouped under company with NO hardcoded fake due amounts
   const defaultIndustrySites = [
     {
       id: 'site_icon_micasa',
       name: 'ICON MICASA JIGANI BOMMAANDRA LINK ROAD',
+      companyName: 'ASG WIN INDIA PRIVATE LIMITED',
+      gstin: '29ABCDE1234F1Z5',
       location: 'Jigani Bommasandra Link Road, Industrial Area',
       city: 'Bangalore',
       state: 'Karnataka',
       siteEngineer: 'Er. Rajesh Patil',
       phone: '+91 98200 99999',
       slabAreaSqft: 18500,
-      dueAmount: 62500,
+      dueAmount: 0,
       totalPcs: 65,
       ratePerSqft: 3,
       balanceAreaSqft: 25000,
@@ -303,13 +388,15 @@ export default function ClientPortal({
     {
       id: 'site_greenwood',
       name: 'GREEN Wood High School',
+      companyName: 'ASG WIN INDIA PRIVATE LIMITED',
+      gstin: '29ABCDE1234F1Z5',
       location: 'Sarjapur Main Road, Chikkawadayarapura',
       city: 'Bangalore',
       state: 'Karnataka',
       siteEngineer: 'Sanjay More',
       phone: '+91 98334 11223',
       slabAreaSqft: 24000,
-      dueAmount: 1484000,
+      dueAmount: 0,
       totalPcs: 260,
       ratePerSqft: 3,
       balanceAreaSqft: 20000,
@@ -321,7 +408,7 @@ export default function ClientPortal({
 
   const clientSites = currentUser?.sites && currentUser.sites.length > 0 
     ? currentUser.sites 
-    : defaultIndustrySites;
+    : (currentUser?.email === 'tempory2911@gmail.com' ? defaultIndustrySites : []);
 
   const clientSiteNames = clientSites.map(s => s.name);
 
@@ -349,8 +436,18 @@ export default function ClientPortal({
     return false;
   });
 
-  // Total Due calculation (e.g. 62,500 + 14,84,000 = 15,46,500)
-  const totalDueAmount = clientSites.reduce((sum, s) => sum + (Number(s.dueAmount) || 0), 0);
+  // Dynamic Total Due calculation strictly from real invoices (NO hardcoded fake amounts!)
+  const clientInvoices = (invoices || []).filter(inv => {
+    if (!currentUser) return false;
+    if (inv.clientId && inv.clientId === currentUser.id) return true;
+    const cName = (currentUser.companyName || currentUser.name || '').toLowerCase();
+    const invClient = (inv.clientName || '').toLowerCase();
+    return cName && (invClient.includes(cName) || cName.includes(invClient));
+  });
+
+  const totalDueAmount = clientInvoices.length > 0
+    ? clientInvoices.filter(inv => inv.status !== 'Paid' && inv.status !== 'paid').reduce((sum, inv) => sum + (Number(inv.grandTotal || inv.amount) || 0), 0)
+    : 0;
 
   // Derived calculation: Length x Breadth
   const calculatedAreaSqft = (Number(quotationRequest.lengthFt) || 0) * (Number(quotationRequest.breadthFt) || 0);
@@ -394,52 +491,77 @@ export default function ClientPortal({
     }));
   };
 
-  // Submit Quotation Request to Owner
+  // Submit Quotation Request to Owner with Mandatory Company Name, Building Name & GST Number
   const handleSubmitQuotationRequest = (e) => {
     e.preventDefault();
-    const enteredSite = quotationRequest.siteName.trim() || 'ICON MICASA JIGANI BOMMAANDRA LINK ROAD';
+
+    const company = (quotationRequest.companyName || '').trim();
+    const site = (quotationRequest.siteName || '').trim();
+    const gst = (quotationRequest.gstin || '').trim().toUpperCase();
+
+    // Mandatory fields enforcement (User requirement 5)
+    if (!company) {
+      alert("Please enter Company Name (Mandatory).");
+      return;
+    }
+    if (!site) {
+      alert("Please enter Building / Site Name (Mandatory).");
+      return;
+    }
+    if (!gst) {
+      alert("Please enter GST Number (Mandatory).");
+      return;
+    }
 
     // Auto-register typed site into client profile if not already present
-    const exists = clientSites.some(s => s.name.toLowerCase() === enteredSite.toLowerCase());
-    if (!exists) {
-      const newSiteObj = {
-        id: `site_${Date.now()}`,
-        name: enteredSite,
-        location: quotationRequest.workPurpose ? `${quotationRequest.workPurpose} Site Location` : 'Site Location',
-        city: 'Navi Mumbai',
-        siteEngineer: currentUser?.name || 'Er. Site In-Charge',
-        phone: currentUser?.phone || '',
-        slabAreaSqft: calculatedAreaSqft || 14000,
-        dueAmount: 75000,
-        totalPcs: 120,
-        lastDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }),
-        badgeType: 'Sqft Area Mix',
-        active: true
-      };
+    const exists = clientSites.some(s => s.name.toLowerCase() === site.toLowerCase());
+    const newSiteObj = {
+      id: `site_${Date.now()}`,
+      name: site,
+      companyName: company,
+      gstin: gst,
+      location: quotationRequest.workPurpose ? `${quotationRequest.workPurpose} Site` : 'Site Location',
+      city: 'Bangalore',
+      siteEngineer: currentUser?.name || 'Er. Site In-Charge',
+      phone: currentUser?.phone || '',
+      slabAreaSqft: calculatedAreaSqft || 0,
+      dueAmount: 0, // Strictly calculated from bills, NO hardcoded amount
+      totalPcs: quotationRequest.itemsNeeded.reduce((s, it) => s + (Number(it.qty) || 0), 0),
+      lastDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }),
+      badgeType: 'Sqft Area Mix',
+      active: true,
+      isApproved: false
+    };
 
-      setUsers(prev => prev.map(u => {
-        if (u.id === currentUser?.id) {
-          return {
-            ...u,
-            sites: [...(u.sites || []), newSiteObj]
-          };
-        }
-        return u;
-      }));
+    if (!exists) {
+      const updatedSites = [...clientSites, newSiteObj];
+      const updatedUser = {
+        ...currentUser,
+        companyName: currentUser?.companyName || company,
+        gstin: currentUser?.gstin || gst,
+        sites: updatedSites
+      };
+      setCurrentUser(updatedUser);
+      localStorage.setItem('scaffbuild_current_user', JSON.stringify(updatedUser));
+      if (setUsers) {
+        setUsers(prev => prev.map(u => u.id === currentUser?.id ? updatedUser : u));
+      }
     }
 
     const newQuot = {
       id: `QUOT-${Date.now()}`,
       quotationNo: `QR/${new Date().getFullYear().toString().slice(-2)}/${Math.floor(100 + Math.random() * 900)}`,
       clientId: currentUser.id,
-      clientName: currentUser.companyName || currentUser.name,
+      clientName: company,
+      companyName: company,
+      gstin: gst,
       contactPerson: currentUser.name,
-      siteName: enteredSite,
+      siteName: site,
       date: new Date().toISOString().slice(0, 10),
       validTill: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
       status: 'requested',
       workOrderNo: '',
-      workPurpose: quotationRequest.workPurpose,
+      workPurpose: quotationRequest.workPurpose || 'Slab Staging & Shuttering',
       lengthFt: Number(quotationRequest.lengthFt) || 0,
       breadthFt: Number(quotationRequest.breadthFt) || 0,
       requestedAreaSqft: calculatedAreaSqft,
@@ -459,14 +581,33 @@ export default function ClientPortal({
       gstRate: 18,
       gstAmount: 0,
       grandTotal: 0,
-      clientNotes: `${quotationRequest.workPurpose ? `[Purpose: ${quotationRequest.workPurpose}] ` : ''}Dimensions: ${quotationRequest.lengthFt} Ft x ${quotationRequest.breadthFt} Ft (${calculatedAreaSqft.toLocaleString()} Sq.Ft). Duration: ${quotationRequest.tenureMonths} Month(s). ${quotationRequest.notes || ''}`.trim(),
+      clientNotes: `[Company: ${company}] [GST: ${gst}] ${quotationRequest.workPurpose ? `[Purpose: ${quotationRequest.workPurpose}] ` : ''}Dimensions: ${quotationRequest.lengthFt} Ft x ${quotationRequest.breadthFt} Ft (${calculatedAreaSqft.toLocaleString()} Sq.Ft). Duration: ${quotationRequest.tenureMonths} Month(s). ${quotationRequest.notes || ''}`.trim(),
       ownerReply: ''
     };
 
     setQuotations(prev => [newQuot, ...prev]);
     setLastSubmittedQuotation(newQuot);
     setIsQuotationFormCollapsed(true);
-    setSuccessBanner(`✅ Quotation requirement "${newQuot.quotationNo}" for "${enteredSite}" submitted!`);
+
+    // Dropdown collapses back to normal (requirement 6)
+    setIsQuotationDropdownOpen(false);
+
+    // Append to system notifications
+    setSystemNotifications(prev => [
+      {
+        id: `notif_${Date.now()}`,
+        title: `Quotation Requested: ${newQuot.quotationNo}`,
+        body: `Quotation requirement for "${site}" (${company}) submitted. Track updates under Quotations.`,
+        sender: 'Yard Request Desk',
+        category: 'Quotation',
+        time: 'Just now',
+        date: new Date().toISOString().slice(0, 10),
+        isRead: false
+      },
+      ...prev
+    ]);
+
+    setSuccessBanner(`✅ Quotation request "${newQuot.quotationNo}" submitted! View status under Approvals.`);
   };
 
   // Client Accepts Owner Quotation & Issues Work Order
@@ -487,16 +628,22 @@ export default function ClientPortal({
     alert(`🎉 Work Order Issued!\nWork Order No: ${generatedWoNo}\nThe shuttering yard has been notified to commence dispatch.`);
   };
 
-  // Client Deletes an Individual Older Quotation Request
+  // Client Deletes an Individual Older Quotation Request (Approved quotations CANNOT be deleted)
   const handleDeleteQuotation = (quotationId, quotationNo) => {
-    const displayLabel = quotationNo || quotationId;
-    if (!window.confirm(`Are you sure you want to delete quotation request "${displayLabel}"?\n\nThis will remove the quotation and work order details permanently.`)) {
+    const targetQuot = quotations.find(q => q.id === quotationId || (quotationNo && q.quotationNo === quotationNo));
+    if (targetQuot && (targetQuot.status === 'work_order_created' || targetQuot.status === 'approved')) {
+      alert("⚠️ Approved quotations and active work orders cannot be deleted.");
       return;
     }
 
-    setQuotations(prev => prev.filter(q => q.id !== quotationId && q.quotationNo !== quotationId));
+    const displayLabel = quotationNo || quotationId;
+    if (!window.confirm(`Are you sure you want to delete quotation request "${displayLabel}"?\n\nThis will remove the unapproved inquiry permanently.`)) {
+      return;
+    }
 
-    if (lastSubmittedQuotation?.id === quotationId || lastSubmittedQuotation?.quotationNo === quotationNo) {
+    setQuotations(prev => prev.filter(q => q.id !== quotationId && (!quotationNo || q.quotationNo !== quotationNo) && q.quotationNo !== quotationId));
+
+    if (lastSubmittedQuotation?.id === quotationId || (quotationNo && lastSubmittedQuotation?.quotationNo === quotationNo)) {
       setLastSubmittedQuotation(null);
       setIsQuotationFormCollapsed(false);
     }
@@ -504,21 +651,27 @@ export default function ClientPortal({
     setSuccessBanner(`🗑️ Quotation "${displayLabel}" deleted successfully.`);
   };
 
-  // Client Deletes All Older Quotations
+  // Client Deletes All Unapproved Older Quotations (Approved quotations are strictly preserved)
   const handleDeleteAllClientQuotations = () => {
-    if (!clientQuotations.length) return;
-    const count = clientQuotations.length;
-    if (!window.confirm(`Are you sure you want to delete all ${count} older quotation request(s) for this account?\n\nThis action cannot be undone.`)) {
+    const unapproved = clientQuotations.filter(q => q.status !== 'work_order_created' && q.status !== 'approved');
+    if (!unapproved.length) {
+      alert("No unapproved quotation requests to delete. Approved work orders cannot be deleted.");
+      return;
+    }
+    const count = unapproved.length;
+    if (!window.confirm(`Are you sure you want to delete ${count} unapproved quotation request(s)?\n\nApproved quotations and active work orders will NOT be affected.`)) {
       return;
     }
 
-    const toDeleteIds = new Set(clientQuotations.map(q => q.id));
-    const toDeleteNos = new Set(clientQuotations.map(q => q.quotationNo));
+    const toDeleteIds = new Set(unapproved.map(q => q.id));
+    const toDeleteNos = new Set(unapproved.map(q => q.quotationNo));
 
     setQuotations(prev => prev.filter(q => !toDeleteIds.has(q.id) && !toDeleteNos.has(q.quotationNo)));
-    setLastSubmittedQuotation(null);
-    setIsQuotationFormCollapsed(false);
-    setSuccessBanner(`🗑️ All ${count} older quotation requests deleted successfully.`);
+    if (lastSubmittedQuotation && (toDeleteIds.has(lastSubmittedQuotation.id) || toDeleteNos.has(lastSubmittedQuotation.quotationNo))) {
+      setLastSubmittedQuotation(null);
+      setIsQuotationFormCollapsed(false);
+    }
+    setSuccessBanner(`🗑️ ${count} unapproved quotation requests deleted successfully.`);
   };
 
   // Calculate Labour Billing amount for a worker log
@@ -1004,12 +1157,68 @@ export default function ClientPortal({
     : clientWorkerLogs.filter(l => l.siteName === selectedSiteFilter);
 
   const pendingApprovalsCount = clientWorkerLogs.filter(l => l.status === 'pending_approval').length;
+  const pendingQuotations = clientQuotations.filter(q => q.status === 'requested' || q.status === 'quotation_sent');
+  const pendingLabourLogs = clientWorkerLogs.filter(l => l.status === 'pending_approval');
+  const totalPendingActionsCount = pendingQuotations.length + pendingLabourLogs.length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', maxWidth: '640px', margin: '0 auto', width: '100%', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
       
       {/* ========================================================================= */}
-      {/* SLIDE NAVIGATION BAR: SEPARATE PAGES LIKE SLIDES                         */}
+      {/* CLIENT TOP IDENTITY BAR WITH 3-DOTS MENU (MATERIALS, PASSWORD, PHONE)    */}
+      {/* ========================================================================= */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: '#ffffff',
+        borderRadius: '14px',
+        border: '1px solid #e5e7eb',
+        padding: '0.75rem 1rem',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          <div style={{
+            width: '38px',
+            height: '38px',
+            borderRadius: '10px',
+            background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+            border: '1px solid #bfdbfe',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.25rem'
+          }}>
+            {currentUser?.avatar || '🏢'}
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '0.98rem', color: '#0f172a', lineHeight: 1.2 }}>
+              {currentUser?.name || 'Client User'}
+            </div>
+          </div>
+        </div>
+
+        {/* 3-DOTS MENU (Replaces direct logout: Available Materials, Forgot password, Change phone, Log out) */}
+        <ClientThreeDotMenu 
+          currentUser={currentUser}
+          setCurrentUser={setCurrentUser}
+          users={users}
+          setUsers={setUsers}
+          onLogout={onLogout}
+          onOpenSettings={() => setActiveSlide('more')}
+          currentLanguage={currentLanguage}
+          onLanguageChange={setCurrentLanguage}
+          onRequestMaterial={(item) => {
+            setActiveSlide('projects');
+            setIsQuotationDropdownOpen(true);
+            handleAddItem(item.name, 50, 'Pcs');
+            setSuccessBanner(`Added "${item.name}" to your quotation form.`);
+          }}
+        />
+      </div>
+
+      {/* ========================================================================= */}
+      {/* SLIDE NAVIGATION BAR: 3 TABS (PROJECTS, NOTIFICATIONS, SETTINGS)          */}
       {/* ========================================================================= */}
       <nav 
         aria-label="Client Portal Sections"
@@ -1020,106 +1229,121 @@ export default function ClientPortal({
           border: '1px solid #e5e7eb',
           padding: '4px',
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-          gap: '4px',
-          overflowX: 'auto'
+          gap: '4px'
         }}
       >
-        {/* Slide Tab 2: Projects & Sites (Matching Screenshot) */}
+        {/* Slide Tab 1: Projects & Sites */}
         <button
           type="button"
+          id="client-nav-projects"
           className={`btn ${activeSlide === 'projects' ? 'btn-primary' : 'btn-outline'}`}
           style={{
             flex: 1,
             borderRadius: '8px',
             border: activeSlide === 'projects' ? 'none' : '1px solid transparent',
-            padding: '0.65rem 0.85rem',
+            padding: '0.55rem 0.35rem',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '0.45rem',
-            fontSize: '0.85rem',
+            gap: '0.35rem',
+            fontSize: 'clamp(0.74rem, 2.7vw, 0.85rem)',
             fontWeight: 700,
-            minWidth: '150px',
+            minWidth: 0,
+            whiteSpace: 'nowrap',
             transition: 'all 0.15s ease'
           }}
           onClick={() => setActiveSlide('projects')}
         >
-          <Building2 size={15} />
-          <span>Projects & Sites</span>
+          <Building2 size={15} style={{ flexShrink: 0 }} />
+          <span>Projects</span>
           <span style={{ 
             background: activeSlide === 'projects' ? 'rgba(255,255,255,0.25)' : '#f3f4f6', 
             color: activeSlide === 'projects' ? '#ffffff' : '#4b5563',
-            fontSize: '0.7rem', 
-            padding: '2px 7px', 
+            fontSize: '0.65rem', 
+            padding: '1px 5px', 
             borderRadius: '999px',
-            fontWeight: 800 
+            fontWeight: 800,
+            flexShrink: 0
           }}>
             {clientSites.length}
           </span>
         </button>
 
-        {/* Slide Tab 1: Request Quotation */}
+        {/* Slide Tab 2: Approvals (Unifies Equipment Quotations & Daily Labour Sign-Offs) */}
         <button
           type="button"
-          className={`btn ${activeSlide === 'request' ? 'btn-primary' : 'btn-outline'}`}
+          id="client-nav-approvals"
+          className={`btn ${activeSlide === 'notifications' ? 'btn-primary' : 'btn-outline'}`}
           style={{
             flex: 1,
             borderRadius: '8px',
-            border: activeSlide === 'request' ? 'none' : '1px solid transparent',
-            padding: '0.65rem 0.85rem',
+            border: activeSlide === 'notifications' ? 'none' : '1px solid transparent',
+            padding: '0.55rem 0.35rem',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '0.45rem',
-            fontSize: '0.85rem',
+            gap: '0.35rem',
+            fontSize: 'clamp(0.74rem, 2.7vw, 0.85rem)',
             fontWeight: 700,
-            minWidth: '150px',
+            minWidth: 0,
+            whiteSpace: 'nowrap',
             transition: 'all 0.15s ease'
           }}
-          onClick={() => setActiveSlide('request')}
+          onClick={() => setActiveSlide('notifications')}
         >
-          <Send size={15} />
-          <span>Request Quotation</span>
-        </button>
-
-        {/* Slide Tab 3: Daily Worker Progress Approval */}
-        <button
-          type="button"
-          className={`btn ${activeSlide === 'worker_progress' ? 'btn-primary' : 'btn-outline'}`}
-          style={{
-            flex: 1,
-            borderRadius: '8px',
-            border: activeSlide === 'worker_progress' ? 'none' : '1px solid transparent',
-            padding: '0.65rem 0.85rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.45rem',
-            fontSize: '0.85rem',
-            fontWeight: 700,
-            minWidth: '160px',
-            transition: 'all 0.15s ease'
-          }}
-          onClick={() => setActiveSlide('worker_progress')}
-        >
-          <HardHat size={15} />
-          <span>Daily Labour & Billing</span>
-          {pendingApprovalsCount > 0 ? (
-            <span style={{ background: '#e11d48', color: '#ffffff', fontSize: '0.7rem', padding: '2px 7px', borderRadius: '999px', fontWeight: 800 }}>
-              {pendingApprovalsCount}
+          <FileCheck2 size={15} style={{ flexShrink: 0 }} />
+          <span>Approvals</span>
+          {totalPendingActionsCount > 0 ? (
+            <span style={{ 
+              background: '#e11d48', 
+              color: '#ffffff', 
+              fontSize: '0.65rem', 
+              padding: '1px 5px', 
+              borderRadius: '999px', 
+              fontWeight: 800,
+              flexShrink: 0
+            }}>
+              {totalPendingActionsCount}
             </span>
           ) : (
             <span style={{ 
-              background: activeSlide === 'worker_progress' ? 'rgba(255,255,255,0.25)' : '#f3f4f6', 
-              color: activeSlide === 'worker_progress' ? '#ffffff' : '#4b5563',
-              fontSize: '0.7rem', 
-              padding: '2px 7px', 
-              borderRadius: '999px',
-              fontWeight: 800 
+              background: activeSlide === 'notifications' ? 'rgba(255,255,255,0.25)' : '#f3f4f6', 
+              color: activeSlide === 'notifications' ? '#ffffff' : '#4b5563',
+              fontSize: '0.65rem', 
+              padding: '1px 5px', 
+              borderRadius: '999px', 
+              fontWeight: 800,
+              flexShrink: 0
             }}>
-              {clientWorkerLogs.length}
+              {clientQuotations.length + clientWorkerLogs.length}
             </span>
           )}
+        </button>
+
+        {/* Slide Tab 3: More Settings */}
+        <button
+          type="button"
+          id="client-nav-more-settings"
+          className={`btn ${activeSlide === 'more' ? 'btn-primary' : 'btn-outline'}`}
+          style={{
+            flex: 1,
+            borderRadius: '8px',
+            border: activeSlide === 'more' ? 'none' : '1px solid transparent',
+            padding: '0.55rem 0.35rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.35rem',
+            fontSize: 'clamp(0.74rem, 2.7vw, 0.85rem)',
+            fontWeight: 700,
+            minWidth: 0,
+            whiteSpace: 'nowrap',
+            transition: 'all 0.15s ease'
+          }}
+          onClick={() => setActiveSlide('more')}
+        >
+          <Settings size={15} style={{ flexShrink: 0 }} />
+          <span>Settings</span>
         </button>
       </nav>
 
@@ -1184,6 +1408,28 @@ export default function ClientPortal({
               !query || b.invNo.toLowerCase().includes(query) || b.period.toLowerCase().includes(query)
             );
 
+            // Compute unified site labour & material bills for this specific site
+            const siteNameTarget = (selectedSiteForDetails.name || '').toLowerCase();
+            const matchedLogs = clientWorkerLogs.filter(l => 
+              (l.siteName || '').toLowerCase().includes(siteNameTarget) || 
+              siteNameTarget.includes((l.siteName || '').toLowerCase())
+            );
+            const siteLogs = matchedLogs.length > 0 ? matchedLogs : clientWorkerLogs;
+
+            const siteApprovedLogs = siteLogs.filter(l => l.status === 'approved');
+            const sitePendingLogs = siteLogs.filter(l => l.status === 'pending_approval');
+            const siteTotalApprovedBilling = siteApprovedLogs.reduce((sum, l) => sum + calculateLabourBilling(l), 0);
+            const siteTotalApprovedArea = siteApprovedLogs.reduce((sum, l) => sum + (Number(l.areaCompletedSqft) || 0), 0);
+            const siteTotalPendingBilling = sitePendingLogs.reduce((sum, l) => sum + calculateLabourBilling(l), 0);
+            const siteTotalPendingArea = sitePendingLogs.reduce((sum, l) => sum + (Number(l.areaCompletedSqft) || 0), 0);
+
+            // Material rental bill total
+            const materialRentalTotal = siteData.bills.reduce((sum, b) => {
+              const num = Number((b.amountStr || '').replace(/[^0-9.-]+/g, '')) || 0;
+              return sum + num;
+            }, 0) || 2655000;
+            const grandTotalAllBills = materialRentalTotal + siteTotalApprovedBilling;
+
             return (
               <div style={{
                 display: 'flex',
@@ -1246,7 +1492,7 @@ export default function ClientPortal({
                   </div>
 
                   {/* Right: Print, PDF, 3-dots */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexShrink: 0 }}>
                     <button
                       type="button"
                       onClick={() => window.print()}
@@ -1274,6 +1520,31 @@ export default function ClientPortal({
                     >
                       PDF
                     </button>
+
+                    {/* 3-DOTS MENU IN SITE DETAILS */}
+                    <ClientThreeDotMenu 
+                      currentUser={currentUser}
+                      setCurrentUser={setCurrentUser}
+                      users={users}
+                      setUsers={setUsers}
+                      onLogout={onLogout}
+                      onOpenSettings={() => {
+                        setSelectedSiteForDetails(null);
+                        setActiveSlide('more');
+                      }}
+                      currentLanguage={currentLanguage}
+                      onLanguageChange={setCurrentLanguage}
+                      onRequestMaterial={(item) => {
+                        setSelectedSiteForDetails(null);
+                        setActiveSlide('request');
+                        setReqItems(prev => [
+                          ...prev,
+                          { name: item.name, category: item.category, qty: 50, unit: 'Pcs' }
+                        ]);
+                        setSuccessBanner(`Added "${item.name}" to your quotation request draft.`);
+                      }}
+                      buttonStyle={{ padding: '3px 6px', border: '1.5px solid #000000', borderRadius: '4px' }}
+                    />
                   </div>
                 </div>
 
@@ -1381,12 +1652,12 @@ export default function ClientPortal({
                   {[
                     { id: 'requests', label: 'Requested & Take Back' },
                     { id: 'quotations', label: 'Quotations' },
-                    { id: 'labour', label: 'Labour & Billing' },
+                    { id: 'labour', label: 'Daily Labour Approvals' },
                     { id: 'all', label: 'All' },
                     { id: 'out', label: 'Out' },
                     { id: 'in', label: 'In' },
                     { id: 'balance', label: 'Balance' },
-                    { id: 'bills', label: 'Bills' },
+                    { id: 'bills', label: 'Bills (All Invoices)' },
                     { id: 'ledger', label: 'Ledger' }
                   ].map(t => {
                     const isActive = siteDetailsActiveTab === t.id;
@@ -1779,25 +2050,29 @@ export default function ClientPortal({
                             </div>
                           </div>
 
-                          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                            {siteQuotations.length > 1 && (
-                              <button
-                                type="button"
-                                className="btn btn-outline btn-sm"
-                                style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#fff', fontSize: '0.76rem' }}
-                                onClick={() => {
-                                  if (window.confirm(`Delete all ${siteQuotations.length} older quotations for ${selectedSiteForDetails.name}?`)) {
-                                    const toDel = new Set(siteQuotations.map(q => q.id));
-                                    const toDelNos = new Set(siteQuotations.map(q => q.quotationNo));
-                                    setQuotations(prev => prev.filter(q => !toDel.has(q.id) && !toDelNos.has(q.quotationNo)));
-                                    setSuccessBanner(`🗑️ All ${siteQuotations.length} quotations for ${selectedSiteForDetails.name} deleted.`);
-                                  }
-                                }}
-                              >
-                                <Trash2 size={13} />
-                                <span>Delete All Older ({siteQuotations.length})</span>
-                              </button>
-                            )}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            {(() => {
+                              const unapprovedSiteQuotations = siteQuotations.filter(q => q.status !== 'work_order_created' && q.status !== 'approved');
+                              if (unapprovedSiteQuotations.length <= 1) return null;
+                              return (
+                                <button
+                                  type="button"
+                                  className="btn btn-outline btn-sm"
+                                  style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#fff', fontSize: '0.76rem' }}
+                                  onClick={() => {
+                                    if (window.confirm(`Delete all ${unapprovedSiteQuotations.length} unapproved older quotations for ${selectedSiteForDetails.name}?\n\nApproved quotations and active work orders will NOT be deleted.`)) {
+                                      const toDel = new Set(unapprovedSiteQuotations.map(q => q.id));
+                                      const toDelNos = new Set(unapprovedSiteQuotations.map(q => q.quotationNo));
+                                      setQuotations(prev => prev.filter(q => !toDel.has(q.id) && !toDelNos.has(q.quotationNo)));
+                                      setSuccessBanner(`🗑️ ${unapprovedSiteQuotations.length} unapproved quotations for ${selectedSiteForDetails.name} deleted.`);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 size={13} />
+                                  <span>Delete Older Requests ({unapprovedSiteQuotations.length})</span>
+                                </button>
+                              );
+                            })()}
 
                             <button
                               type="button"
@@ -1822,6 +2097,7 @@ export default function ClientPortal({
                               const isWorkOrder = quot.status === 'work_order_created';
                               const isQuotationSent = quot.status === 'quotation_sent';
                               const isRequested = quot.status === 'requested';
+                              const isApproved = isWorkOrder || quot.status === 'approved';
 
                               return (
                                 <div 
@@ -1870,16 +2146,18 @@ export default function ClientPortal({
                                       <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#111827', fontFamily: 'var(--font-mono)' }}>
                                         TOTAL: ₹{(quot.grandTotal || 0).toLocaleString('en-IN')}
                                       </span>
-                                      <button
-                                        type="button"
-                                        className="btn btn-outline btn-sm"
-                                        style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#fff', padding: '0.25rem 0.55rem', fontSize: '0.74rem' }}
-                                        onClick={() => handleDeleteQuotation(quot.id, quot.quotationNo)}
-                                        title="Delete this older quotation"
-                                      >
-                                        <Trash2 size={13} />
-                                        <span>Delete</span>
-                                      </button>
+                                      {!isApproved && (
+                                        <button
+                                          type="button"
+                                          className="btn btn-outline btn-sm"
+                                          style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#fff', padding: '0.25rem 0.55rem', fontSize: '0.74rem' }}
+                                          onClick={() => handleDeleteQuotation(quot.id, quot.quotationNo)}
+                                          title="Delete this unapproved quotation"
+                                        >
+                                          <Trash2 size={13} />
+                                          <span>Delete</span>
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
 
@@ -1914,15 +2192,17 @@ export default function ClientPortal({
 
                                     {/* Actions */}
                                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid #f1f5f9' }}>
-                                      <button
-                                        type="button"
-                                        className="btn btn-outline btn-sm"
-                                        style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#fff' }}
-                                        onClick={() => handleDeleteQuotation(quot.id, quot.quotationNo)}
-                                      >
-                                        <Trash2 size={13} />
-                                        <span>Delete Quotation</span>
-                                      </button>
+                                      {!isApproved && (
+                                        <button
+                                          type="button"
+                                          className="btn btn-outline btn-sm"
+                                          style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#fff' }}
+                                          onClick={() => handleDeleteQuotation(quot.id, quot.quotationNo)}
+                                        >
+                                          <Trash2 size={13} />
+                                          <span>Delete Quotation</span>
+                                        </button>
+                                      )}
 
                                       {isQuotationSent && (
                                         <button
@@ -1974,20 +2254,8 @@ export default function ClientPortal({
                     );
                   })()}
 
-                  {/* TAB: DAILY LABOUR WORK, BILLING & APPROVED THINGS FOR THIS SITE */}
+                  {/* TAB: DAILY LABOUR WORK APPROVALS & QUALITY CERTIFICATION FOR THIS SITE */}
                   {siteDetailsActiveTab === 'labour' && (() => {
-                    const siteNameTarget = (selectedSiteForDetails.name || '').toLowerCase();
-                    const siteLogs = clientWorkerLogs.filter(l => 
-                      (l.siteName || '').toLowerCase().includes(siteNameTarget) || 
-                      siteNameTarget.includes((l.siteName || '').toLowerCase())
-                    );
-
-                    const siteApprovedLogs = siteLogs.filter(l => l.status === 'approved');
-                    const sitePendingLogs = siteLogs.filter(l => l.status === 'pending_approval');
-                    const siteTotalApprovedBilling = siteApprovedLogs.reduce((sum, l) => sum + calculateLabourBilling(l), 0);
-                    const siteTotalApprovedArea = siteApprovedLogs.reduce((sum, l) => sum + (Number(l.areaCompletedSqft) || 0), 0);
-                    const siteTotalPendingBilling = sitePendingLogs.reduce((sum, l) => sum + calculateLabourBilling(l), 0);
-
                     const displayLogs = labourBillingActiveSubTab === 'approved' 
                       ? siteApprovedLogs 
                       : labourBillingActiveSubTab === 'pending' 
@@ -2012,24 +2280,14 @@ export default function ClientPortal({
                           <div>
                             <div style={{ fontWeight: 800, fontSize: '0.96rem', color: '#111827', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
                               <span>👷</span>
-                              <span>Daily Labour Work, Billing & Approvals</span>
+                              <span>Daily Labour Approvals & Quality Sign-Off</span>
                             </div>
                             <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
-                              Site: <strong>{selectedSiteForDetails.name}</strong> • Crew staging logs, certified approvals, and labor billing in one section
+                              Site: <strong>{selectedSiteForDetails.name}</strong> • Inspect crew staging, verify sq.ft, and issue quality certifications
                             </div>
                           </div>
 
                           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                            <button
-                              type="button"
-                              className="btn btn-outline btn-sm"
-                              style={{ fontSize: '0.76rem', background: '#ffffff', color: '#111827', borderColor: '#d1d5db', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
-                              onClick={() => setIsLabourStatementModalOpen(true)}
-                            >
-                              <FileText size={13} color="var(--orange-primary)" />
-                              <span>Labour Bill Statement</span>
-                            </button>
-
                             <button
                               type="button"
                               className="btn btn-primary btn-sm"
@@ -2045,15 +2303,40 @@ export default function ClientPortal({
                           </div>
                         </div>
 
+                        {/* Notice Banner: All Labour Bills are under Bills */}
+                        <div style={{
+                          background: '#eff6ff',
+                          border: '1px solid #bfdbfe',
+                          borderRadius: '10px',
+                          padding: '0.65rem 0.85rem',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: '0.78rem'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#1e40af' }}>
+                            <span>💼</span>
+                            <span><strong>Looking for Labour Bills?</strong> All Labour Bills are unified with Material Invoices under the <strong>Bills</strong> tab.</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            style={{ background: '#ffffff', borderColor: '#93c5fd', color: '#1d4ed8', fontSize: '0.74rem', padding: '3px 8px', fontWeight: 700 }}
+                            onClick={() => setSiteDetailsActiveTab('bills')}
+                          >
+                            Go to Bills →
+                          </button>
+                        </div>
+
                         {/* 4 Summary KPI Cards */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.65rem' }}>
-                          <div style={{ background: '#ffffff', border: '1.5px solid #a7f3d0', borderRadius: '10px', padding: '0.75rem', borderLeft: '4px solid #10b981' }}>
-                            <div style={{ fontSize: '0.68rem', color: '#047857', fontWeight: 700 }}>CERTIFIED LABOUR BILL</div>
-                            <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 900, color: '#065f46', marginTop: '2px' }}>
-                              ₹{siteTotalApprovedBilling.toLocaleString('en-IN')}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.65rem' }}>
+                          <div style={{ background: '#ffffff', border: '1.5px solid #fecdd3', borderRadius: '10px', padding: '0.75rem', borderLeft: '4px solid #e11d48' }}>
+                            <div style={{ fontSize: '0.68rem', color: '#be123c', fontWeight: 700 }}>PENDING APPROVALS</div>
+                            <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 900, color: '#9f1239', marginTop: '2px' }}>
+                              {sitePendingLogs.length} Logs
                             </div>
                             <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>
-                              {siteTotalApprovedArea.toLocaleString()} Sq.Ft Certified
+                              Valued at ₹{siteTotalPendingBilling.toLocaleString('en-IN')}
                             </div>
                           </div>
 
@@ -2067,28 +2350,28 @@ export default function ClientPortal({
                             </div>
                           </div>
 
-                          <div style={{ background: '#ffffff', border: '1.5px solid #fecdd3', borderRadius: '10px', padding: '0.75rem', borderLeft: '4px solid #e11d48' }}>
-                            <div style={{ fontSize: '0.68rem', color: '#be123c', fontWeight: 700 }}>PENDING APPROVALS</div>
-                            <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 900, color: '#9f1239', marginTop: '2px' }}>
-                              {sitePendingLogs.length} Logs
+                          <div style={{ background: '#ffffff', border: '1.5px solid #a7f3d0', borderRadius: '10px', padding: '0.75rem', borderLeft: '4px solid #10b981' }}>
+                            <div style={{ fontSize: '0.68rem', color: '#047857', fontWeight: 700 }}>CERTIFIED AREA</div>
+                            <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 900, color: '#065f46', marginTop: '2px' }}>
+                              {siteTotalApprovedArea.toLocaleString()}
                             </div>
                             <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>
-                              Valued at ₹{siteTotalPendingBilling.toLocaleString('en-IN')}
+                              Sq.Ft Staging Verified
                             </div>
                           </div>
 
                           <div style={{ background: '#ffffff', border: '1.5px solid #e2e8f0', borderRadius: '10px', padding: '0.75rem', borderLeft: '4px solid #64748b' }}>
-                            <div style={{ fontSize: '0.68rem', color: '#475569', fontWeight: 700 }}>LABOUR RATE</div>
+                            <div style={{ fontSize: '0.68rem', color: '#475569', fontWeight: 700 }}>ACTIVE CREW</div>
                             <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 900, color: '#1e293b', marginTop: '2px' }}>
-                              ₹{labourRatePerSqft}/Sq.Ft
+                              {siteLogs.reduce((sum, l) => sum + (Number(l.laborCount) || 1), 0)}
                             </div>
                             <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>
-                              Slab Staging Rate
+                              Workers Reported
                             </div>
                           </div>
                         </div>
 
-                        {/* Sub-Tabs: All Labour Work, Pending Sign-off, Approved Things, Labour Billing */}
+                        {/* Sub-Tabs: Pending Sign-off, Approved Things, All Labour Work (ONLY APPROVALS!) */}
                         <div style={{
                           display: 'flex',
                           gap: '0.35rem',
@@ -2098,10 +2381,9 @@ export default function ClientPortal({
                           overflowX: 'auto'
                         }}>
                           {[
-                            { id: 'all', label: `All Labour Work (${siteLogs.length})` },
                             { id: 'pending', label: `⏱ Pending Sign-Off (${sitePendingLogs.length})` },
                             { id: 'approved', label: `✓ Approved Things (${siteApprovedLogs.length})` },
-                            { id: 'billing', label: `💵 Labour Billing Table` }
+                            { id: 'all', label: `All Labour Logs (${siteLogs.length})` }
                           ].map(sub => (
                             <button
                               key={sub.id}
@@ -2126,201 +2408,137 @@ export default function ClientPortal({
                           ))}
                         </div>
 
-                        {/* SUB-TAB: BILLING TABLE */}
-                        {labourBillingActiveSubTab === 'billing' ? (
-                          <div style={{ background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                            <div style={{ padding: '0.75rem 0.85rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.45rem' }}>
-                              <div style={{ fontSize: '0.84rem', fontWeight: 800, color: '#111827' }}>
-                                Site Labour Work Billing Breakdown
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem' }}>
-                                <span style={{ color: '#64748b' }}>Rate:</span>
-                                <input
-                                  type="number"
-                                  className="form-input mono"
-                                  style={{ width: '65px', padding: '2px 6px', fontSize: '0.78rem', textAlign: 'center' }}
-                                  value={labourRatePerSqft}
-                                  onChange={(e) => setLabourRatePerSqft(Number(e.target.value) || 0)}
-                                />
-                                <span style={{ color: '#64748b' }}>₹/Sq.Ft</span>
-                              </div>
-                            </div>
+                        {/* CARDS LIST FOR ALL, PENDING, OR APPROVED THINGS */}
+                        {displayLogs.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            {displayLogs.map((log) => {
+                              const isApproved = log.status === 'approved';
+                              const isPending = log.status === 'pending_approval';
 
-                            <div style={{ overflowX: 'auto' }}>
-                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                                <thead>
-                                  <tr style={{ background: '#f1f5f9', borderBottom: '1.5px solid #e2e8f0', textAlign: 'left' }}>
-                                    <th style={{ padding: '7px 10px' }}>Date</th>
-                                    <th style={{ padding: '7px 10px' }}>Work / Floor</th>
-                                    <th style={{ padding: '7px 10px' }}>Gang / Crew</th>
-                                    <th style={{ padding: '7px 10px', textAlign: 'right' }}>Area (Sq.Ft)</th>
-                                    <th style={{ padding: '7px 10px', textAlign: 'right' }}>Rate (₹)</th>
-                                    <th style={{ padding: '7px 10px', textAlign: 'right' }}>Labour Bill (₹)</th>
-                                    <th style={{ padding: '7px 10px', textAlign: 'center' }}>Approval Status</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {siteLogs.map((log) => {
-                                    const logBilling = calculateLabourBilling(log);
-                                    const isApproved = log.status === 'approved';
-                                    return (
-                                      <tr key={log.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                        <td style={{ padding: '7px 10px', fontWeight: 600 }}>{log.date}</td>
-                                        <td style={{ padding: '7px 10px' }}>
-                                          <strong>{log.workType}</strong>
-                                          <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{log.floorLevel}</div>
-                                        </td>
-                                        <td style={{ padding: '7px 10px' }}>{log.workerName} ({log.laborCount} crew)</td>
-                                        <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{log.areaCompletedSqft}</td>
-                                        <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>₹{labourRatePerSqft}</td>
-                                        <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 800, color: isApproved ? '#059669' : '#d97706' }}>
-                                          ₹{logBilling.toLocaleString('en-IN')}
-                                        </td>
-                                        <td style={{ padding: '7px 10px', textAlign: 'center' }}>
-                                          <span className={`badge ${isApproved ? 'badge-gst' : 'badge-non-gst'}`} style={{ fontSize: '0.66rem' }}>
-                                            {isApproved ? '✓ APPROVED' : '⏱ PENDING'}
-                                          </span>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                                <tfoot>
-                                  <tr style={{ background: '#f8fafc', fontWeight: 800, borderTop: '2px solid #e2e8f0' }}>
-                                    <td colSpan="3" style={{ padding: '9px 10px' }}>TOTAL CERTIFIED LABOUR BILL:</td>
-                                    <td style={{ padding: '9px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{siteTotalApprovedArea.toLocaleString()}</td>
-                                    <td style={{ padding: '9px 10px' }}></td>
-                                    <td style={{ padding: '9px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#047857', fontSize: '0.94rem' }}>
-                                      ₹{siteTotalApprovedBilling.toLocaleString('en-IN')}
-                                    </td>
-                                    <td style={{ padding: '9px 10px', textAlign: 'center', color: '#059669', fontSize: '0.72rem' }}>
-                                      {siteApprovedLogs.length} Approved Things
-                                    </td>
-                                  </tr>
-                                </tfoot>
-                              </table>
-                            </div>
+                              return (
+                                <div
+                                  key={log.id}
+                                  style={{
+                                    background: '#ffffff',
+                                    border: isApproved ? '1.5px solid #a7f3d0' : isPending ? '1.5px solid #fdba74' : '1.5px solid #fecdd3',
+                                    borderLeft: isApproved ? '4px solid #10b981' : isPending ? '4px solid #ff6b00' : '4px solid #e11d48',
+                                    borderRadius: '12px',
+                                    padding: '0.85rem',
+                                    boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.45rem' }}>
+                                    <div>
+                                      <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#111827' }}>
+                                        {log.workType}
+                                      </div>
+                                      <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                                        Floor: <strong>{log.floorLevel}</strong> • Date: <strong>{log.date}</strong>
+                                      </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                                      <span className={`badge ${isApproved ? 'badge-gst' : isPending ? 'badge-non-gst' : 'badge-danger'}`} style={{ fontSize: '0.68rem' }}>
+                                        {isApproved ? '✓ APPROVED THING' : isPending ? '⏱ PENDING SIGN-OFF' : 'REVISION'}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Crew & Area Bar */}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '0.45rem 0.65rem', borderRadius: '6px', fontSize: '0.78rem', margin: '0.5rem 0' }}>
+                                    <div>Gang / In-charge: <strong>{log.workerName}</strong> ({log.laborCount} crew • {log.hoursWorked || 8}h)</div>
+                                    <div className="mono" style={{ fontWeight: 800, color: 'var(--orange-primary)' }}>
+                                      {log.areaCompletedSqft} Sq.Ft Certified Area
+                                    </div>
+                                  </div>
+
+                                  <p style={{ fontSize: '0.78rem', color: '#374151', margin: '0.4rem 0', fontStyle: 'italic' }}>
+                                    "{log.workCompletedSummary}"
+                                  </p>
+
+                                  {/* APPROVED THING: OFFICIAL QUALITY CERTIFICATION BOX */}
+                                  {isApproved && (
+                                    <div style={{
+                                      background: '#ecfdf5',
+                                      border: '1px solid #a7f3d0',
+                                      borderRadius: '8px',
+                                      padding: '0.6rem 0.75rem',
+                                      marginTop: '0.5rem',
+                                      fontSize: '0.76rem',
+                                      color: '#065f46'
+                                    }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
+                                        <strong>✓ Certified & Approved Work Log</strong>
+                                        <span style={{ fontSize: '0.7rem', color: '#047857' }}>{log.approvalTimestamp}</span>
+                                      </div>
+                                      <div>Inspected & Certified by: <strong>{log.approvedBy}</strong></div>
+                                      <div style={{ marginTop: '2px', color: '#047857' }}>Quality Sign-off: "{log.approvalComments}"</div>
+                                      <div style={{ marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontWeight: 700, color: '#065f46' }}>
+                                          Certified Area: {log.areaCompletedSqft} Sq.Ft (Certified for billing release)
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const text = encodeURIComponent(`Quality Sign-off Certificate for ${log.siteName} (${log.workType}) - Certified Area: ${log.areaCompletedSqft} Sq.Ft - Inspected by: ${log.approvedBy}`);
+                                            window.open(`https://wa.me/?text=${text}`, '_blank');
+                                          }}
+                                          style={{
+                                            background: '#10b981',
+                                            color: '#ffffff',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            padding: '2px 8px',
+                                            fontSize: '0.7rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer'
+                                          }}
+                                        >
+                                          WhatsApp Certificate
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* PENDING APPROVAL ACTIONS */}
+                                  {isPending && (
+                                    <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.55rem' }}>
+                                      <button 
+                                        className="btn btn-success btn-sm"
+                                        style={{ flex: 2, padding: '0.45rem', fontSize: '0.8rem' }}
+                                        onClick={() => setSelectedLogToApprove(log)}
+                                      >
+                                        <Check size={13} />
+                                        <span>Approve Daily Work & Certify Area ({log.areaCompletedSqft} Sq.Ft)</span>
+                                      </button>
+                                      <button 
+                                        className="btn btn-danger btn-sm"
+                                        style={{ flex: 1, padding: '0.45rem', fontSize: '0.8rem' }}
+                                        onClick={() => handleConfirmApproval(log, false)}
+                                      >
+                                        <X size={13} />
+                                        <span>Reject</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : (
-                          /* CARDS LIST FOR ALL, PENDING, OR APPROVED THINGS */
-                          displayLogs.length > 0 ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                              {displayLogs.map((log) => {
-                                const isApproved = log.status === 'approved';
-                                const isPending = log.status === 'pending_approval';
-                                const logBilling = calculateLabourBilling(log);
-
-                                return (
-                                  <div
-                                    key={log.id}
-                                    style={{
-                                      background: '#ffffff',
-                                      border: isApproved ? '1.5px solid #a7f3d0' : isPending ? '1.5px solid #fdba74' : '1.5px solid #fecdd3',
-                                      borderLeft: isApproved ? '4px solid #10b981' : isPending ? '4px solid #ff6b00' : '4px solid #e11d48',
-                                      borderRadius: '12px',
-                                      padding: '0.85rem',
-                                      boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
-                                    }}
-                                  >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.45rem' }}>
-                                      <div>
-                                        <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#111827' }}>
-                                          {log.workType}
-                                        </div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
-                                          Floor: <strong>{log.floorLevel}</strong> • Date: <strong>{log.date}</strong>
-                                        </div>
-                                      </div>
-
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-                                        <div style={{ textAlign: 'right' }}>
-                                          <div style={{ fontSize: '0.65rem', color: '#64748b', fontWeight: 700 }}>LABOUR BILL</div>
-                                          <div className="mono" style={{ fontSize: '0.92rem', fontWeight: 900, color: isApproved ? '#059669' : '#d97706' }}>
-                                            ₹{logBilling.toLocaleString('en-IN')}
-                                          </div>
-                                        </div>
-
-                                        <span className={`badge ${isApproved ? 'badge-gst' : isPending ? 'badge-non-gst' : 'badge-danger'}`} style={{ fontSize: '0.68rem' }}>
-                                          {isApproved ? '✓ APPROVED THING' : isPending ? '⏱ PENDING' : 'REVISION'}
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    {/* Crew & Area Bar */}
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '0.45rem 0.65rem', borderRadius: '6px', fontSize: '0.78rem', margin: '0.5rem 0' }}>
-                                      <div>Gang / In-charge: <strong>{log.workerName}</strong> ({log.laborCount} crew • {log.hoursWorked || 8}h)</div>
-                                      <div className="mono" style={{ fontWeight: 800, color: 'var(--orange-primary)' }}>
-                                        {log.areaCompletedSqft} Sq.Ft (@ ₹{labourRatePerSqft}/ft)
-                                      </div>
-                                    </div>
-
-                                    <p style={{ fontSize: '0.78rem', color: '#374151', margin: '0.4rem 0', fontStyle: 'italic' }}>
-                                      "{log.workCompletedSummary}"
-                                    </p>
-
-                                    {/* APPROVED THING: OFFICIAL QUALITY CERTIFICATION BOX */}
-                                    {isApproved && (
-                                      <div style={{
-                                        background: '#ecfdf5',
-                                        border: '1px solid #a7f3d0',
-                                        borderRadius: '8px',
-                                        padding: '0.6rem 0.75rem',
-                                        marginTop: '0.5rem',
-                                        fontSize: '0.76rem',
-                                        color: '#065f46'
-                                      }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '3px' }}>
-                                          <strong>✓ Certified & Approved Work Log</strong>
-                                          <span style={{ fontSize: '0.7rem', color: '#047857' }}>{log.approvalTimestamp}</span>
-                                        </div>
-                                        <div>Inspected & Certified by: <strong>{log.approvedBy}</strong></div>
-                                        <div style={{ marginTop: '2px', color: '#047857' }}>Quality Sign-off: "{log.approvalComments}"</div>
-                                        <div style={{ marginTop: '3px', fontWeight: 700, color: '#065f46' }}>
-                                          Approved Billed Amount: ₹{logBilling.toLocaleString('en-IN')} (Certified for payment release)
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {/* PENDING APPROVAL ACTIONS */}
-                                    {isPending && (
-                                      <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.55rem' }}>
-                                        <button 
-                                          className="btn btn-success btn-sm"
-                                          style={{ flex: 2, padding: '0.45rem', fontSize: '0.8rem' }}
-                                          onClick={() => setSelectedLogToApprove(log)}
-                                        >
-                                          <Check size={13} />
-                                          <span>Approve Daily Work & Certify Bill (₹{logBilling.toLocaleString('en-IN')})</span>
-                                        </button>
-                                        <button 
-                                          className="btn btn-danger btn-sm"
-                                          style={{ flex: 1, padding: '0.45rem', fontSize: '0.8rem' }}
-                                          onClick={() => handleConfirmApproval(log, false)}
-                                        >
-                                          <X size={13} />
-                                          <span>Reject</span>
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                          <div style={{ textAlign: 'center', padding: '2rem 1rem', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #cbd5e1' }}>
+                            <HardHat size={32} style={{ opacity: 0.35, margin: '0 auto 0.5rem', color: 'var(--orange-primary)' }} />
+                            <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>
+                              {labourBillingActiveSubTab === 'approved' 
+                                ? 'No Approved Things Yet' 
+                                : labourBillingActiveSubTab === 'pending' 
+                                  ? 'No Pending Approvals for this site' 
+                                  : 'No Labour Work Logs Reported'}
                             </div>
-                          ) : (
-                            <div style={{ textAlign: 'center', padding: '2rem 1rem', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #cbd5e1' }}>
-                              <HardHat size={32} style={{ opacity: 0.35, margin: '0 auto 0.5rem', color: 'var(--orange-primary)' }} />
-                              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e293b' }}>
-                                {labourBillingActiveSubTab === 'approved' 
-                                  ? 'No Approved Things Yet' 
-                                  : labourBillingActiveSubTab === 'pending' 
-                                    ? 'No Pending Approvals for this site' 
-                                    : 'No Labour Work Logs Reported'}
-                              </div>
-                              <p style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '4px' }}>
-                                Click "+ Record Daily Labour" above to log work and generate billing.
-                              </p>
-                            </div>
-                          )
+                            <p style={{ fontSize: '0.76rem', color: '#64748b', marginTop: '4px' }}>
+                              All submitted worker staging progress will appear here for engineering inspection and approval.
+                            </p>
+                          </div>
                         )}
 
                       </div>
@@ -2456,42 +2674,483 @@ export default function ClientPortal({
                     </div>
                   )}
 
-                  {/* TAB: BILLS (SCREENSHOT 3) */}
+                  {/* TAB: UNIFIED BILLS (ALL BILLS: MATERIAL RENTAL + LABOUR BILLS) */}
                   {siteDetailsActiveTab === 'bills' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                      {/* Warning Notice Banner from Screenshot 3 */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '0 0.85rem' }}>
+                      
+                      {/* Master Header Banner */}
                       <div style={{
-                        background: '#ffffff',
-                        padding: '0.75rem 1rem',
-                        fontSize: '0.86rem',
-                        color: '#111827',
-                        lineHeight: 1.35
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '12px',
+                        padding: '0.85rem',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0.5rem'
                       }}>
-                        {siteData.billsTotalDiffWarning}
-                      </div>
-
-                      {/* Invoice Rows */}
-                      <div style={{ padding: '0 1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {filteredBills.map((b, idx) => (
-                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0' }}>
-                            <div>
-                              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#000000' }}>No: {b.invNo}</div>
-                              <div style={{ fontSize: '0.82rem', color: '#6b7280', marginTop: '2px' }}>{b.period}</div>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                              <span style={{ fontWeight: 800, fontSize: '1rem', color: '#000000' }}>{b.amountStr}</span>
-                            </div>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '0.98rem', color: '#111827', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                            <span>📑</span>
+                            <span>Consolidated Site Bills & Invoices</span>
+                            <span style={{ fontSize: '0.66rem', background: '#e0f2fe', color: '#0369a1', padding: '2px 7px', borderRadius: '4px', fontWeight: 800 }}>
+                              ALL BILLS UNIFIED
+                            </span>
                           </div>
-                        ))}
+                          <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                            Site: <strong>{selectedSiteForDetails.name}</strong> • All Material Rental Invoices and Certified Labour Staging Bills in one master section
+                          </div>
+                        </div>
 
-                        <div style={{ height: '1px', background: '#e5e7eb', margin: '0.25rem 0' }} />
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            style={{ fontSize: '0.76rem', background: '#ffffff', color: '#111827', borderColor: '#d1d5db', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                            onClick={() => setIsLabourStatementModalOpen(true)}
+                          >
+                            <FileText size={13} color="var(--orange-primary)" />
+                            <span>Labour Statement</span>
+                          </button>
 
-                        {/* Total Row */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, fontSize: '1rem', color: '#000000' }}>
-                          <span>Total</span>
-                          <span>{siteData.bills[0]?.amountStr || '₹ 26,55,000'}</span>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            style={{ fontSize: '0.76rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+                            onClick={() => window.print()}
+                          >
+                            <Printer size={13} />
+                            <span>Print All Bills</span>
+                          </button>
                         </div>
                       </div>
+
+                      {/* 4 Financial KPI Overview Cards */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: '0.65rem' }}>
+                        
+                        {/* 1. Material Bills */}
+                        <div style={{ background: '#ffffff', border: '1.5px solid #bfdbfe', borderRadius: '10px', padding: '0.75rem', borderLeft: '4px solid #2563eb' }}>
+                          <div style={{ fontSize: '0.68rem', color: '#1d4ed8', fontWeight: 700 }}>MATERIAL RENTAL BILLS</div>
+                          <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 900, color: '#1e3a8a', marginTop: '2px' }}>
+                            ₹{materialRentalTotal.toLocaleString('en-IN')}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>
+                            {filteredBills.length} Active Tax Invoices
+                          </div>
+                        </div>
+
+                        {/* 2. Labour Bills */}
+                        <div style={{ background: '#ffffff', border: '1.5px solid #a7f3d0', borderRadius: '10px', padding: '0.75rem', borderLeft: '4px solid #10b981' }}>
+                          <div style={{ fontSize: '0.68rem', color: '#047857', fontWeight: 700 }}>CERTIFIED LABOUR BILLS</div>
+                          <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 900, color: '#065f46', marginTop: '2px' }}>
+                            ₹{siteTotalApprovedBilling.toLocaleString('en-IN')}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>
+                            {siteTotalApprovedArea.toLocaleString()} Sq.Ft Certified
+                          </div>
+                        </div>
+
+                        {/* 3. Grand Total */}
+                        <div style={{ background: '#ffffff', border: '1.5px solid #fed7aa', borderRadius: '10px', padding: '0.75rem', borderLeft: '4px solid var(--orange-primary)' }}>
+                          <div style={{ fontSize: '0.68rem', color: '#c2410c', fontWeight: 800 }}>GRAND TOTAL (ALL BILLS)</div>
+                          <div className="mono" style={{ fontSize: '1.2rem', fontWeight: 900, color: 'var(--orange-primary)', marginTop: '2px' }}>
+                            ₹{grandTotalAllBills.toLocaleString('en-IN')}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>
+                            Material + Certified Labour
+                          </div>
+                        </div>
+
+                        {/* 4. Pending Labour Sign-Off */}
+                        <div style={{ background: '#ffffff', border: '1.5px solid #fecdd3', borderRadius: '10px', padding: '0.75rem', borderLeft: '4px solid #e11d48' }}>
+                          <div style={{ fontSize: '0.68rem', color: '#be123c', fontWeight: 700 }}>PENDING LABOUR SIGN-OFF</div>
+                          <div className="mono" style={{ fontSize: '1.15rem', fontWeight: 900, color: '#9f1239', marginTop: '2px' }}>
+                            ₹{siteTotalPendingBilling.toLocaleString('en-IN')}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: '2px' }}>
+                            {sitePendingLogs.length} Logs Awaiting Sign-off
+                          </div>
+                        </div>
+
+                      </div>
+
+                      {/* Sub-View Filter Pills: All Bills, Material Bills, Labour Bills */}
+                      <div style={{
+                        display: 'flex',
+                        gap: '0.4rem',
+                        background: '#f1f5f9',
+                        padding: '4px',
+                        borderRadius: '10px',
+                        overflowX: 'auto'
+                      }}>
+                        {[
+                          { id: 'all', label: `📑 All Bills (Grand Total: ₹${grandTotalAllBills.toLocaleString('en-IN')})` },
+                          { id: 'material', label: `📦 Material Rental Invoices (${filteredBills.length})` },
+                          { id: 'labour', label: `👷 Labour Staging Bills (${siteLogs.length})` }
+                        ].map(sub => (
+                          <button
+                            key={sub.id}
+                            type="button"
+                            onClick={() => setBillsViewFilter(sub.id)}
+                            style={{
+                              flex: 1,
+                              padding: '0.5rem 0.85rem',
+                              border: 'none',
+                              borderRadius: '8px',
+                              background: billsViewFilter === sub.id ? '#ffffff' : 'transparent',
+                              color: billsViewFilter === sub.id ? '#000000' : '#64748b',
+                              fontWeight: billsViewFilter === sub.id ? 800 : 600,
+                              fontSize: '0.8rem',
+                              cursor: 'pointer',
+                              boxShadow: billsViewFilter === sub.id ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                              whiteSpace: 'nowrap',
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            {sub.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* ================================================================= */}
+                      {/* SECTION 1: MATERIAL RENTAL INVOICES                               */}
+                      {/* ================================================================= */}
+                      {(billsViewFilter === 'all' || billsViewFilter === 'material') && (
+                        <div style={{
+                          background: '#ffffff',
+                          borderRadius: '12px',
+                          border: '1.5px solid #e2e8f0',
+                          overflow: 'hidden',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+                        }}>
+                          {/* Card Header */}
+                          <div style={{
+                            padding: '0.75rem 1rem',
+                            background: '#f8fafc',
+                            borderBottom: '1px solid #e2e8f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                              <Package size={16} color="#2563eb" />
+                              <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0f172a' }}>
+                                Material Rental & Equipment Hire Invoices
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600 }}>
+                              Monthly Hire & Dispatch Challans
+                            </span>
+                          </div>
+
+                          {/* Warning Notice Banner from Screenshot 3 */}
+                          {siteData.billsTotalDiffWarning && (
+                            <div style={{
+                              background: '#fffbeb',
+                              borderBottom: '1px solid #fef3c7',
+                              padding: '0.65rem 1rem',
+                              fontSize: '0.82rem',
+                              color: '#92400e',
+                              lineHeight: 1.35
+                            }}>
+                              {siteData.billsTotalDiffWarning}
+                            </div>
+                          )}
+
+                          {/* Invoice Rows */}
+                          <div style={{ padding: '0.5rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            {filteredBills.map((b, idx) => (
+                              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: idx < filteredBills.length - 1 ? '1px dashed #f1f5f9' : 'none' }}>
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                                    <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#000000' }}>No: {b.invNo}</span>
+                                    <span className="badge badge-gst" style={{ fontSize: '0.65rem' }}>GST Tax Invoice</span>
+                                  </div>
+                                  <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: '2px' }}>
+                                    Period: <strong>{b.period}</strong> • Due: 15 Days
+                                  </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                                  <span className="mono" style={{ fontWeight: 900, fontSize: '1.05rem', color: '#000000' }}>{b.amountStr}</span>
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline btn-sm"
+                                    style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+                                    onClick={() => alert(`Opening GST Tax Invoice ${b.invNo} for ${selectedSiteForDetails.name}...`)}
+                                  >
+                                    View
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+
+                            <div style={{ height: '1px', background: '#e5e7eb', margin: '0.15rem 0' }} />
+
+                            {/* Material Subtotal */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 800, fontSize: '0.94rem', color: '#1e3a8a', padding: '0.25rem 0' }}>
+                              <span>Total Material Rental Invoices:</span>
+                              <span className="mono" style={{ fontSize: '1.05rem' }}>₹{materialRentalTotal.toLocaleString('en-IN')}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ================================================================= */}
+                      {/* SECTION 2: CERTIFIED DAILY LABOUR STAGING BILLS                   */}
+                      {/* ================================================================= */}
+                      {(billsViewFilter === 'all' || billsViewFilter === 'labour') && (
+                        <div style={{
+                          background: '#ffffff',
+                          borderRadius: '12px',
+                          border: '1.5px solid #a7f3d0',
+                          overflow: 'hidden',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+                        }}>
+                          {/* Card Header */}
+                          <div style={{
+                            padding: '0.75rem 1rem',
+                            background: '#f0fdf4',
+                            borderBottom: '1px solid #bbf7d0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '0.45rem'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                              <HardHat size={16} color="#059669" />
+                              <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#065f46' }}>
+                                Certified Daily Labour Work & Staging Bills
+                              </span>
+                            </div>
+
+                            {/* Rate Customizer Widget */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.78rem' }}>
+                              <span style={{ color: '#047857', fontWeight: 700 }}>Labour Rate:</span>
+                              <div style={{ display: 'flex', alignItems: 'center', background: '#ffffff', border: '1.5px solid #86efac', borderRadius: '6px', padding: '2px 6px' }}>
+                                <span style={{ color: '#6b7280', fontSize: '0.75rem' }}>₹</span>
+                                <input
+                                  type="number"
+                                  className="mono"
+                                  style={{ width: '48px', border: 'none', outline: 'none', fontWeight: 800, fontSize: '0.8rem', textAlign: 'center', color: '#065f46' }}
+                                  value={labourRatePerSqft}
+                                  onChange={(e) => setLabourRatePerSqft(Number(e.target.value) || 0)}
+                                />
+                                <span style={{ color: '#6b7280', fontSize: '0.72rem' }}>/Sq.Ft</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Labour Staging Bills Table: Shows all certified & pending work */}
+                          {siteLogs.length > 0 ? (
+                            <div style={{ overflowX: 'auto' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+                                <thead>
+                                  <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #e2e8f0', textAlign: 'left' }}>
+                                    <th style={{ padding: '7px 10px' }}>Date</th>
+                                    <th style={{ padding: '7px 10px' }}>Work / Floor</th>
+                                    <th style={{ padding: '7px 10px' }}>Gang / Crew</th>
+                                    <th style={{ padding: '7px 10px', textAlign: 'right' }}>Certified Area</th>
+                                    <th style={{ padding: '7px 10px', textAlign: 'right' }}>Rate (₹)</th>
+                                    <th style={{ padding: '7px 10px', textAlign: 'right' }}>Labour Bill (₹)</th>
+                                    <th style={{ padding: '7px 10px', textAlign: 'center' }}>Sign-off Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {siteLogs.map((log) => {
+                                    const logBilling = calculateLabourBilling(log);
+                                    const isApproved = log.status === 'approved';
+                                    return (
+                                      <tr key={log.id} style={{ borderBottom: '1px solid #f1f5f9', background: isApproved ? '#fafdfb' : '#fffbeb' }}>
+                                        <td style={{ padding: '7px 10px', fontWeight: 600 }}>{log.date}</td>
+                                        <td style={{ padding: '7px 10px' }}>
+                                          <strong>{log.workType}</strong>
+                                          <div style={{ fontSize: '0.72rem', color: '#64748b' }}>Floor: {log.floorLevel}</div>
+                                        </td>
+                                        <td style={{ padding: '7px 10px' }}>{log.workerName} ({log.laborCount} crew)</td>
+                                        <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                                          {log.areaCompletedSqft} Sq.Ft
+                                        </td>
+                                        <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>₹{labourRatePerSqft}</td>
+                                        <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 800, color: isApproved ? '#047857' : '#b45309' }}>
+                                          ₹{logBilling.toLocaleString('en-IN')}
+                                        </td>
+                                        <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                                          {isApproved ? (
+                                            <span className="badge badge-gst" style={{ fontSize: '0.66rem' }}>
+                                              ✓ CERTIFIED
+                                            </span>
+                                          ) : (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', justifyContent: 'center' }}>
+                                              <span className="badge badge-non-gst" style={{ fontSize: '0.66rem' }}>
+                                                ⏱ PENDING
+                                              </span>
+                                              <button
+                                                type="button"
+                                                className="btn btn-success btn-xs"
+                                                style={{ fontSize: '0.68rem', padding: '2px 6px', fontWeight: 800 }}
+                                                onClick={() => handleConfirmApproval(log, true)}
+                                              >
+                                                Approve
+                                              </button>
+                                            </div>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                                <tfoot>
+                                  <tr style={{ background: '#f0fdf4', fontWeight: 800, borderTop: '2px solid #86efac' }}>
+                                    <td colSpan="3" style={{ padding: '8px 10px', color: '#065f46' }}>
+                                      ✓ Total Certified Bills ({siteApprovedLogs.length}):
+                                    </td>
+                                    <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#065f46' }}>
+                                      {siteTotalApprovedArea.toLocaleString()} Sq.Ft
+                                    </td>
+                                    <td style={{ padding: '8px 10px' }}></td>
+                                    <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#047857', fontSize: '0.98rem' }}>
+                                      ₹{siteTotalApprovedBilling.toLocaleString('en-IN')}
+                                    </td>
+                                    <td style={{ padding: '8px 10px', textAlign: 'center', color: '#047857', fontSize: '0.72rem' }}>
+                                      Certified Sign-off
+                                    </td>
+                                  </tr>
+                                  {sitePendingLogs.length > 0 && (
+                                    <tr style={{ background: '#fffbeb', fontWeight: 800, borderTop: '1px dashed #fcd34d' }}>
+                                      <td colSpan="3" style={{ padding: '8px 10px', color: '#92400e' }}>
+                                        ⏱ Pending Sign-Off Bills ({sitePendingLogs.length}):
+                                      </td>
+                                      <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#92400e' }}>
+                                        {siteTotalPendingArea.toLocaleString()} Sq.Ft
+                                      </td>
+                                      <td style={{ padding: '8px 10px' }}></td>
+                                      <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#b45309', fontSize: '0.98rem' }}>
+                                        ₹{siteTotalPendingBilling.toLocaleString('en-IN')}
+                                      </td>
+                                      <td style={{ padding: '8px 10px', textAlign: 'center', color: '#b45309', fontSize: '0.72rem' }}>
+                                        Awaiting Client Review
+                                      </td>
+                                    </tr>
+                                  )}
+                                  <tr style={{ background: '#f8fafc', fontWeight: 900, borderTop: '2px solid #cbd5e1' }}>
+                                    <td colSpan="3" style={{ padding: '9px 10px', color: '#0f172a' }}>
+                                      GRAND TOTAL LABOUR BILLS ({siteLogs.length} Entries):
+                                    </td>
+                                    <td style={{ padding: '9px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#0f172a' }}>
+                                      {(siteTotalApprovedArea + siteTotalPendingArea).toLocaleString()} Sq.Ft
+                                    </td>
+                                    <td style={{ padding: '9px 10px' }}></td>
+                                    <td style={{ padding: '9px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--orange-primary)', fontSize: '1.05rem' }}>
+                                      ₹{(siteTotalApprovedBilling + siteTotalPendingBilling).toLocaleString('en-IN')}
+                                    </td>
+                                    <td style={{ padding: '9px 10px', textAlign: 'center', color: '#64748b', fontSize: '0.72rem' }}>
+                                      Consolidated
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          ) : (
+                            <div style={{ padding: '1.5rem', textAlign: 'center', background: '#ffffff', color: '#64748b' }}>
+                              <p style={{ margin: 0, fontSize: '0.82rem' }}>
+                                No labour work logs recorded for this site yet.
+                              </p>
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                style={{ marginTop: '0.65rem', fontSize: '0.78rem' }}
+                                onClick={() => setIsAddLabourModalOpen(true)}
+                              >
+                                + Record Daily Labour Entry
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Footer Action */}
+                          <div style={{ padding: '0.65rem 1rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
+                              Official contractor certified staging measurement sheet
+                            </div>
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              style={{ fontSize: '0.76rem', gap: '0.35rem' }}
+                              onClick={() => setIsLabourStatementModalOpen(true)}
+                            >
+                              <FileText size={13} color="var(--orange-primary)" />
+                              <span>View / Print Labour Bill Statement</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* ================================================================= */}
+                      {/* SECTION 3: GRAND CONSOLIDATED TOTAL SUMMARY CARD                  */}
+                      {/* ================================================================= */}
+                      {billsViewFilter === 'all' && (
+                        <div style={{
+                          background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                          color: '#ffffff',
+                          borderRadius: '14px',
+                          padding: '1.25rem',
+                          boxShadow: '0 4px 14px rgba(0,0,0,0.12)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.85rem'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.15)', paddingBottom: '0.65rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                              <span style={{ fontSize: '1.2rem' }}>💰</span>
+                              <div>
+                                <div style={{ fontSize: '0.96rem', fontWeight: 800 }}>Master Account Statement Total</div>
+                                <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                                  Consolidated Payable for {selectedSiteForDetails.name}
+                                </div>
+                              </div>
+                            </div>
+                            <span style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>
+                              ALL BILLS INCLUDED
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', fontSize: '0.82rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1' }}>
+                              <span>1. Material Equipment Rental Invoices:</span>
+                              <span className="mono" style={{ fontWeight: 700, color: '#ffffff' }}>₹{materialRentalTotal.toLocaleString('en-IN')}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1' }}>
+                              <span>2. Certified Daily Labour Staging Bills:</span>
+                              <span className="mono" style={{ fontWeight: 700, color: '#34d399' }}>₹{siteTotalApprovedBilling.toLocaleString('en-IN')}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1' }}>
+                              <span>3. Applicable GST on Material Hire (18%):</span>
+                              <span style={{ color: '#94a3b8' }}>Included in Invoices</span>
+                            </div>
+                          </div>
+
+                          <div style={{ borderTop: '1.5px dashed rgba(255,255,255,0.25)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: '0.72rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>
+                                COMBINED TOTAL PAYABLE (ALL BILLS)
+                              </div>
+                              <div style={{ fontSize: '0.72rem', color: '#38bdf8', marginTop: '2px' }}>
+                                Due within 15 days of billing cycle
+                              </div>
+                            </div>
+                            <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 900, color: 'var(--orange-primary)' }}>
+                              ₹{grandTotalAllBills.toLocaleString('en-IN')}
+                            </div>
+                          </div>
+
+                          <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '0.6rem 0.85rem', fontSize: '0.72rem', color: '#94a3b8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem' }}>
+                            <span>Bank: <strong>HDFC Bank Ltd</strong> • A/c: <strong>50200088991122</strong> • IFSC: <strong>HDFC0001234</strong></span>
+                            <span style={{ color: '#38bdf8', fontWeight: 700 }}>ScaffBuild Shuttering ERP</span>
+                          </div>
+                        </div>
+                      )}
+
                     </div>
                   )}
 
@@ -2987,96 +3646,259 @@ export default function ClientPortal({
               </div>
             )}
 
-            {/* 2. DARK NAVY CLIENT CAPSULE BAR: User Icon + Company Name + WhatsApp + New site */}
-            <div style={{
-              background: '#2e4255',
-              border: '2px solid #203548',
-              borderRadius: '9999px',
-              padding: '5px 6px 5px 6px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              color: '#ffffff',
-              marginBottom: '0.9rem',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.06)'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', overflow: 'hidden', paddingLeft: '2px' }}>
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '50%',
-                  border: '2px solid #ffffff',
-                  background: '#2e4255',
+
+
+            {/* Always Visible [+ Request Equipment Quotation] Button with Dropdown Form */}
+            <div style={{ marginBottom: '1rem' }}>
+              <button
+                type="button"
+                id="client-btn-request-quotation-dropdown"
+                onClick={() => setIsQuotationDropdownOpen(!isQuotationDropdownOpen)}
+                style={{
+                  width: '100%',
+                  padding: '0.85rem 1.15rem',
+                  background: isQuotationDropdownOpen 
+                    ? 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)' 
+                    : 'linear-gradient(135deg, var(--orange-primary) 0%, #ea580c 100%)',
                   color: '#ffffff',
+                  border: 'none',
+                  borderRadius: isQuotationDropdownOpen ? '14px 14px 0 0' : '14px',
+                  fontWeight: 800,
+                  fontSize: '0.95rem',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0
-                }}>
-                  <User size={19} strokeWidth={2.4} />
+                  justifyContent: 'space-between',
+                  boxShadow: '0 4px 14px rgba(234, 88, 12, 0.25)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <Send size={18} />
+                  <span>+ Request Equipment Quotation</span>
                 </div>
-                <span style={{ 
-                  fontWeight: 800, 
-                  fontSize: '0.85rem', 
-                  letterSpacing: '0.01em', 
-                  textTransform: 'uppercase', 
-                  whiteSpace: 'nowrap', 
-                  overflow: 'hidden', 
-                  textOverflow: 'ellipsis',
-                  maxWidth: '240px'
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', opacity: 0.9 }}>
+                  <span>{isQuotationDropdownOpen ? 'Hide Form ▲' : 'Open Form ▼'}</span>
+                </div>
+              </button>
+
+              {/* Dropdown Form (Collapses back to normal after submit) */}
+              {isQuotationDropdownOpen && (
+                <div style={{
+                  background: '#ffffff',
+                  border: '1.5px solid #ea580c',
+                  borderTop: 'none',
+                  borderRadius: '0 0 14px 14px',
+                  padding: '1.25rem',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
+                  animation: 'fadeIn 0.2s ease'
                 }}>
-                  {currentUser?.companyName && currentUser.companyName !== 'Temporary Construction Ltd' 
-                    ? currentUser.companyName 
-                    : 'ASG WIN INDIA PRIVATE LI...'}
-                </span>
-              </div>
+                  <div style={{ marginBottom: '1rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem' }}>
+                    <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#0f172a' }}>
+                      Request Equipment Quotation Order
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                      Fill in Company Name, Building Name, and GST Number mandatorily to receive commercial rates.
+                    </div>
+                  </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexShrink: 0 }}>
-                {/* WhatsApp White Speech Bubble with dark navy phone icon */}
-                <a 
-                  href={`https://wa.me/${(currentUser?.phone || '+919820099999').replace(/[^0-9]/g, '')}?text=Hello%20ScaffBuild%20Team`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    width: '30px',
-                    height: '30px',
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    textDecoration: 'none',
-                    flexShrink: 0
-                  }}
-                  title="Chat on WhatsApp"
-                >
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 2C6.48 2 2 6.48 2 12C2 13.85 2.5 15.58 3.38 17.07L2 22L7.07 20.67C8.52 21.52 10.21 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2Z" fill="#ffffff" />
-                    <path d="M16.5 14.5C16.2 14.3 14.8 13.6 14.6 13.5C14.3 13.4 14.1 13.4 14 13.6C13.8 13.8 13.4 14.3 13.2 14.5C13.1 14.6 12.9 14.6 12.7 14.5C12.1 14.2 11.2 13.8 10.3 12.9C9.5 12.2 9.1 11.4 8.9 11C8.8 10.8 8.9 10.6 9 10.5C9.1 10.4 9.2 10.2 9.4 10.1C9.5 9.9 9.5 9.8 9.6 9.6C9.7 9.5 9.6 9.3 9.6 9.2C9.5 9.1 9.1 8 8.9 7.6C8.7 7.1 8.5 7.2 8.3 7.2L7.9 7.2C7.7 7.2 7.4 7.3 7.2 7.5C6.9 7.8 6.3 8.4 6.3 9.6C6.3 10.7 7.2 11.8 7.3 12C7.5 12.1 9 14.6 11.3 15.6C13.2 16.4 13.8 16.3 14.4 16.2C15.1 16.1 16.3 15.4 16.6 14.7C16.8 14 16.8 13.5 16.7 13.4C16.6 13.3 16.7 14.6 16.5 14.5Z" fill="#2e4255" />
-                  </svg>
-                </a>
+                  <form onSubmit={handleSubmitQuotationRequest} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                    
+                    {/* Mandatory Fields: Company Name, Building Name, GST Number */}
+                    <div style={{ background: '#f8fafc', padding: '0.85rem', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#ea580c', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Required Company &amp; Building Details (Mandatory)
+                      </div>
 
-                {/* New Site Pill Button */}
-                <button
-                  type="button"
-                  onClick={() => setIsNewSiteModalOpen(true)}
-                  style={{
-                    background: '#ffffff',
-                    color: '#111827',
-                    border: 'none',
-                    borderRadius: '9999px',
-                    padding: '5px 14px',
-                    fontSize: '0.84rem',
-                    fontWeight: 700,
-                    cursor: 'pointer'
-                  }}
-                >
-                  New site
-                </button>
-              </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>
+                          Company Name <span style={{ color: '#e11d48' }}>*</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. ASG WIN INDIA PRIVATE LIMITED"
+                          value={quotationRequest.companyName}
+                          onChange={(e) => setQuotationRequest({ ...quotationRequest, companyName: e.target.value })}
+                          required
+                        />
+                      </div>
+
+                      <div className="grid-2" style={{ gap: '0.75rem' }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>
+                            Building / Site Name <span style={{ color: '#e11d48' }}>*</span>
+                          </label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="e.g. Tower B Commercial Hub"
+                            value={quotationRequest.siteName}
+                            onChange={(e) => setQuotationRequest({ ...quotationRequest, siteName: e.target.value })}
+                            required
+                          />
+                        </div>
+
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>
+                            GST Number <span style={{ color: '#e11d48' }}>*</span>
+                          </label>
+                          <input
+                            type="text"
+                            className="form-input mono"
+                            placeholder="e.g. 29ABCDE1234F1Z5"
+                            value={quotationRequest.gstin}
+                            onChange={(e) => setQuotationRequest({ ...quotationRequest, gstin: e.target.value.toUpperCase() })}
+                            required
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Staging & Dimensions Details */}
+                    <div className="grid-2" style={{ gap: '0.75rem' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>
+                          Work Purpose
+                        </label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. Slab Staging &amp; Shuttering"
+                          value={quotationRequest.workPurpose}
+                          onChange={(e) => setQuotationRequest({ ...quotationRequest, workPurpose: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>
+                          Rental Duration (Months)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-input mono"
+                          value={quotationRequest.tenureMonths}
+                          onChange={(e) => setQuotationRequest({ ...quotationRequest, tenureMonths: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>
+                          Slab Length (Ft)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-input mono"
+                          value={quotationRequest.lengthFt}
+                          onChange={(e) => setQuotationRequest({ ...quotationRequest, lengthFt: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>
+                          Slab Breadth (Ft)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-input mono"
+                          value={quotationRequest.breadthFt}
+                          onChange={(e) => setQuotationRequest({ ...quotationRequest, breadthFt: e.target.value })}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Items Needed Section */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.45rem' }}>
+                        <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem', margin: 0 }}>
+                          Requested Equipment Items ({quotationRequest.itemsNeeded.length})
+                        </label>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          style={{ fontSize: '0.72rem', padding: '2px 8px' }}
+                          onClick={() => handleAddItem()}
+                        >
+                          + Add Item
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '180px', overflowY: 'auto' }}>
+                        {quotationRequest.itemsNeeded.map((it, idx) => (
+                          <div key={idx} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                            <input
+                              type="text"
+                              className="form-input"
+                              style={{ flex: 1, fontSize: '0.8rem', padding: '0.4rem 0.6rem' }}
+                              value={it.name}
+                              placeholder="Item description"
+                              onChange={(e) => handleItemChange(idx, 'name', e.target.value)}
+                            />
+                            <input
+                              type="number"
+                              className="form-input mono"
+                              style={{ width: '80px', fontSize: '0.8rem', padding: '0.4rem 0.6rem' }}
+                              value={it.qty}
+                              onChange={(e) => handleItemChange(idx, 'qty', e.target.value)}
+                            />
+                            <span style={{ fontSize: '0.75rem', color: '#64748b', width: '32px' }}>{it.unit || 'Pcs'}</span>
+                            {quotationRequest.itemsNeeded.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(idx)}
+                                style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>
+                        Special Instructions / Notes
+                      </label>
+                      <textarea
+                        className="form-input"
+                        rows={2}
+                        placeholder="e.g. Urgent staging required for casting by weekend..."
+                        value={quotationRequest.notes}
+                        onChange={(e) => setQuotationRequest({ ...quotationRequest, notes: e.target.value })}
+                        style={{ fontSize: '0.82rem' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        style={{ flex: 1, justifyContent: 'center', fontSize: '0.85rem' }}
+                        onClick={() => setIsQuotationDropdownOpen(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="btn btn-primary"
+                        style={{ flex: 2, justifyContent: 'center', fontSize: '0.85rem', fontWeight: 800, background: 'linear-gradient(135deg, var(--orange-primary) 0%, #ea580c 100%)' }}
+                      >
+                        Submit Quotation Request →
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
             </div>
 
-            {/* 3. SITE CARDS LIST (EXACT MATCH TO 1ST SCREENSHOT) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            {/* 3. SITE CARDS LIST GROUPED BY COMPANY & GST NUMBER */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {filteredSites.length === 0 ? (
                 <div style={{
                   textAlign: 'center',
@@ -3102,218 +3924,428 @@ export default function ClientPortal({
                     Clear Search
                   </button>
                 </div>
-              ) : (
-                filteredSites.map((site, index) => (
-                <div 
-                  key={site.id || index}
-                  style={{
-                    background: '#ffffff',
-                    borderRadius: '20px',
-                    border: '1px solid #d8d8d8',
-                    boxShadow: '0 3px 10px rgba(0,0,0,0.03)',
-                    padding: '1.15rem 1.15rem 0.5rem 1.15rem',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    position: 'relative'
-                  }}
-                >
-                  {/* Building Name */}
-                  <div style={{ 
-                    fontSize: '1.02rem', 
-                    fontWeight: 800, 
-                    color: '#000000', 
-                    lineHeight: 1.35,
-                    marginBottom: '0.35rem'
-                  }}>
-                    Building: {site.name}
-                  </div>
+              ) : (() => {
+                // Group sites by Company Name and GST Number
+                const sitesByCompany = filteredSites.reduce((acc, site) => {
+                  const sName = (site.name || '').trim().toLowerCase();
+                  const matchingQuot = clientQuotations.find(q => 
+                    (q.siteName || '').trim().toLowerCase() === sName ||
+                    (q.siteId && q.siteId === site.id)
+                  );
+                  const companyKey = (site.companyName || matchingQuot?.companyName || currentUser?.companyName || 'General Projects').trim();
+                  const gstinKey = (site.gstin || matchingQuot?.gstin || currentUser?.gstin || '').trim();
+                  const groupKey = `${companyKey}:::${gstinKey}`;
 
-                  {/* Subline: # 1   Due: 62,500₹   65 pcs   26 Oct 26 ⋮ */}
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center', 
-                    marginTop: '2px',
-                    marginBottom: '0.45rem'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '0.98rem', fontWeight: 600, color: '#000000' }}>
-                        # {index + 1}
-                      </span>
-                      <span style={{ 
-                        fontSize: '1.08rem', 
-                        fontWeight: 900, 
-                        color: '#ffffff',
-                        WebkitTextStroke: '0.9px #000000',
-                        letterSpacing: '-0.2px'
-                      }}>
-                        Due: {(site.dueAmount || (index === 0 ? 62500 : 1484000)).toLocaleString('en-IN')}₹
-                      </span>
-                      <span style={{ fontSize: '0.92rem', color: '#111827', fontWeight: 500 }}>
-                        {site.totalPcs || (index === 0 ? 65 : 260)} pcs
-                      </span>
-                    </div>
+                  if (!acc[groupKey]) {
+                    acc[groupKey] = {
+                      companyName: companyKey,
+                      gstin: gstinKey,
+                      items: []
+                    };
+                  }
+                  acc[groupKey].items.push({ site, siteQuot: matchingQuot });
+                  return acc;
+                }, {});
 
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.9rem', color: '#111827', fontWeight: 500 }}>
-                        {site.lastDate || (index === 0 ? '26 Oct 26' : '1 Oct 26')}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Salmon / Rose Badge: Sqft Area Mix (#ef8697) */}
-                  <div style={{ marginTop: '1px', marginBottom: '0.65rem' }}>
-                    <span style={{
-                      background: '#ef8697',
-                      color: '#000000',
-                      padding: '2.5px 8px',
-                      borderRadius: '5px',
-                      fontSize: '0.74rem',
-                      fontWeight: 800,
-                      display: 'inline-block'
+                return Object.values(sitesByCompany).map((group, groupIndex) => (
+                  <div key={groupIndex} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    
+                    {/* Company Name & GST Heading (Shown ONCE per company, not repeated for same company!) */}
+                    <div style={{
+                      background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                      color: '#ffffff',
+                      borderRadius: '12px',
+                      padding: '0.65rem 0.95rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      boxShadow: '0 2px 6px rgba(15, 23, 42, 0.08)'
                     }}>
-                      {site.badgeType || 'Sqft Area Mix'}
-                    </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                        <span style={{ fontSize: '1.15rem' }}>🏢</span>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#ffffff', lineHeight: 1.2 }}>
+                            {group.companyName}
+                          </div>
+                          {group.gstin && (
+                            <div style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '2px' }}>
+                              <span style={{ color: '#38bdf8', fontWeight: 700 }}>GST:</span>
+                              <span className="mono" style={{ color: '#f1f5f9', letterSpacing: '0.04em' }}>{group.gstin}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <span style={{
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        background: 'rgba(255,255,255,0.12)',
+                        color: '#e2e8f0',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        border: '1px solid rgba(255,255,255,0.1)'
+                      }}>
+                        {group.items.length} {group.items.length === 1 ? 'Site' : 'Sites'}
+                      </span>
+                    </div>
+
+                    {/* All Sites under this Company */}
+                    {group.items.map(({ site, siteQuot }, index) => {
+                      const sName = (site.name || '').trim().toLowerCase();
+
+                      // Demo user 'tempory2911@gmail.com' has pre-approved sites
+                      const isDemoClient = currentUser?.email === 'tempory2911@gmail.com';
+
+                      // Site is approved ONLY if owner approved quotation or created work order, or demo user
+                      const isApprovedByOwner = isDemoClient || Boolean(
+                        site.isApproved || 
+                        (siteQuot && (siteQuot.status === 'work_order_created' || siteQuot.status === 'quotation_sent'))
+                      );
+
+                      const isPendingReview = Boolean(siteQuot && siteQuot.status === 'requested');
+
+                      // If NOT approved by owner: show clean pending/needs-quotation status card!
+                      if (!isApprovedByOwner) {
+                        return (
+                          <div 
+                            key={site.id || index}
+                            style={{
+                              background: '#ffffff',
+                              borderRadius: '20px',
+                              border: '1.5px dashed #cbd5e1',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                              padding: '1.15rem 1.15rem 1rem 1.15rem',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '0.65rem'
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.4rem' }}>
+                              <div>
+                                <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
+                                  {site.name}
+                                </div>
+                                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                                  {site.location ? `${site.location} • ` : ''}Registered Site #{index + 1}
+                                </div>
+                              </div>
+
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 800,
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                background: isPendingReview ? '#fef3c7' : '#f1f5f9',
+                                color: isPendingReview ? '#b45309' : '#475569',
+                                border: `1px solid ${isPendingReview ? '#fde68a' : '#e2e8f0'}`
+                              }}>
+                                {isPendingReview ? '⏳ Quotation Under Owner Review' : '📝 Quotation Required'}
+                              </span>
+                            </div>
+
+                            <div style={{ 
+                              fontSize: '0.8rem', 
+                              color: '#475569', 
+                              background: '#f8fafc', 
+                              padding: '0.65rem 0.85rem', 
+                              borderRadius: '10px', 
+                              border: '1px solid #e2e8f0',
+                              lineHeight: 1.45
+                            }}>
+                              {isPendingReview 
+                                ? 'Quotation request has been sent to ScaffBuild Yard. Once approved by the owner and work order is issued, site inventory, Request Items, Take Back & billing actions will be unlocked here.'
+                                : 'This site is registered. Please submit an equipment quotation request. Once approved by the owner, active inventory, material dispatch & billing will appear here.'}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '4px' }}>
+                              {isPendingReview ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-outline btn-sm"
+                                  style={{ flex: 1, justifyContent: 'center', fontSize: '0.8rem', padding: '0.5rem' }}
+                                  onClick={() => {
+                                    setActiveSlide('notifications');
+                                    setNotificationsActiveTab('quotations');
+                                  }}
+                                >
+                                  <span>View Quotation Status</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="btn btn-primary btn-sm"
+                                  style={{ flex: 1, justifyContent: 'center', fontSize: '0.8rem', padding: '0.5rem' }}
+                                  onClick={() => {
+                                    setQuotationRequest(prev => ({ 
+                                      ...prev, 
+                                      siteName: site.name,
+                                      companyName: site.companyName || currentUser?.companyName || '',
+                                      gstin: site.gstin || currentUser?.gstin || ''
+                                    }));
+                                    setIsQuotationDropdownOpen(true);
+                                  }}
+                                >
+                                  <Plus size={14} />
+                                  <span>+ Request Equipment Quotation for {site.name}</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Real Due Amount: strictly calculated from active unpaid invoices for this site
+                      const siteInvoices = (invoices || []).filter(inv => {
+                        const matchSite = (inv.siteName || '').trim().toLowerCase() === sName;
+                        const matchId = inv.siteId && inv.siteId === site.id;
+                        return matchSite || matchId;
+                      });
+
+                      const calculatedDue = siteInvoices
+                        .filter(inv => inv.status !== 'Paid' && inv.status !== 'paid')
+                        .reduce((sum, inv) => sum + (Number(inv.grandTotal || inv.amount) || 0), 0);
+
+                      const dueAmountDisplay = calculatedDue;
+
+                      // Real Total Pieces: from actual delivery/inward challans for this site
+                      const siteChallans = (challans || []).filter(ch => {
+                        const matchSite = (ch.siteName || '').trim().toLowerCase() === sName;
+                        const matchId = ch.siteId && ch.siteId === site.id;
+                        return matchSite || matchId;
+                      });
+
+                      const calculatedPcs = siteChallans
+                        .filter(ch => ch.type === 'delivery' || ch.type === 'inward')
+                        .reduce((sum, ch) => sum + (ch.items || []).reduce((iSum, it) => iSum + (Number(it.qty) || 0), 0), 0);
+
+                      const totalPcsDisplay = calculatedPcs > 0 ? calculatedPcs : (site.totalPcs || 0);
+
+                      // Real Latest Date
+                      const lastDateDisplay = site.lastDate || siteChallans[0]?.date || siteQuot?.date || 'Active';
+
+                      // Real Badge
+                      const badgeDisplay = site.badgeType || (
+                        siteQuot?.status === 'work_order_created' 
+                          ? 'Work Order Active' 
+                          : siteQuot?.status === 'quotation_sent' 
+                            ? 'Quotation Approved' 
+                            : 'Active Site'
+                      );
+
+                      return (
+                        <div 
+                          key={site.id || index}
+                          style={{
+                            background: '#ffffff',
+                            borderRadius: '20px',
+                            border: '1px solid #d8d8d8',
+                            boxShadow: '0 3px 10px rgba(0,0,0,0.03)',
+                            padding: '1.15rem 1.15rem 0.5rem 1.15rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            position: 'relative'
+                          }}
+                        >
+                          {/* Site Name */}
+                          <div style={{ 
+                            fontSize: '1.02rem', 
+                            fontWeight: 800, 
+                            color: '#000000', 
+                            lineHeight: 1.35,
+                            marginBottom: '0.35rem'
+                          }}>
+                            {site.name}
+                          </div>
+
+                          {/* Subline: # 1   Due: 0₹   0 pcs   Date */}
+                          <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center', 
+                            marginTop: '2px',
+                            marginBottom: '0.45rem'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.98rem', fontWeight: 600, color: '#000000' }}>
+                                # {index + 1}
+                              </span>
+                              <span style={{ 
+                                fontSize: '1.08rem', 
+                                fontWeight: 900, 
+                                color: '#ffffff',
+                                WebkitTextStroke: '0.9px #000000',
+                                letterSpacing: '-0.2px'
+                              }}>
+                                Due: {dueAmountDisplay.toLocaleString('en-IN')}₹
+                              </span>
+                              <span style={{ fontSize: '0.92rem', color: '#111827', fontWeight: 500 }}>
+                                {totalPcsDisplay} pcs
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.9rem', color: '#111827', fontWeight: 500 }}>
+                                {lastDateDisplay}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Badge */}
+                          <div style={{ marginTop: '1px', marginBottom: '0.65rem' }}>
+                            <span style={{
+                              background: '#ef8697',
+                              color: '#000000',
+                              padding: '2.5px 8px',
+                              borderRadius: '5px',
+                              fontSize: '0.74rem',
+                              fontWeight: 800,
+                              display: 'inline-block'
+                            }}>
+                              {badgeDisplay}
+                            </span>
+                          </div>
+
+                          {/* 3 Column Action Buttons: [Request Items]  |  [Take Back]  |  [Details] */}
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr 1fr',
+                            margin: '0 -1.15rem',
+                            paddingTop: '0.35rem'
+                          }}>
+                            {/* 1. Request Items (Items Needed More) */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSiteForIssue(site);
+                                setIssueFormData(prev => ({
+                                  ...prev,
+                                  challanNo: `REQ/${new Date().getFullYear()}/${Math.floor(100 + Math.random() * 900)}`
+                                }));
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.45rem',
+                                background: 'transparent',
+                                border: 'none',
+                                borderRight: '1px solid #f3f3f3',
+                                padding: '0.65rem 0.2rem',
+                                cursor: 'pointer',
+                                fontSize: '0.86rem',
+                                fontWeight: 700,
+                                color: '#000000'
+                              }}
+                            >
+                              <div style={{
+                                width: '26px',
+                                height: '26px',
+                                borderRadius: '50%',
+                                background: '#e6657c', // Pinkish red circle from screenshot
+                                color: '#ffffff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                              }}>
+                                {/* [-> icon */}
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                                  <polyline points="16 17 21 12 16 7" />
+                                  <line x1="21" y1="12" x2="9" y2="12" />
+                                </svg>
+                              </div>
+                              <span>Request Items</span>
+                            </button>
+
+                            {/* 2. Take Back */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSiteForReceive(site);
+                                setReceiveFormData(prev => ({
+                                  ...prev,
+                                  returnChallanNo: `RC/${new Date().getFullYear()}/${Math.floor(100 + Math.random() * 900)}`
+                                }));
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.45rem',
+                                background: 'transparent',
+                                border: 'none',
+                                borderRight: '1px solid #f3f3f3',
+                                padding: '0.65rem 0.2rem',
+                                cursor: 'pointer',
+                                fontSize: '0.86rem',
+                                fontWeight: 700,
+                                color: '#000000'
+                              }}
+                            >
+                              <div style={{
+                                width: '26px',
+                                height: '26px',
+                                borderRadius: '50%',
+                                background: '#37a23a', // Emerald green circle from screenshot
+                                color: '#ffffff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                              }}>
+                                {/* ->] icon */}
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                                  <polyline points="10 17 15 12 10 7" />
+                                  <line x1="15" y1="12" x2="3" y2="12" />
+                                </svg>
+                              </div>
+                              <span>Take Back</span>
+                            </button>
+
+                            {/* 3. Details */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSiteForDetails(site)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.45rem',
+                                background: 'transparent',
+                                border: 'none',
+                                padding: '0.65rem 0.2rem',
+                                cursor: 'pointer',
+                                fontSize: '0.86rem',
+                                fontWeight: 700,
+                                color: '#000000'
+                              }}
+                            >
+                              <div style={{
+                                width: '26px',
+                                height: '26px',
+                                borderRadius: '50%',
+                                background: '#444444', // Dark circle from screenshot
+                                color: '#ffffff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                              }}>
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M14 2H6a2 2 0 0 1-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                  <polyline points="14 2 14 8 20 8" />
+                                </svg>
+                              </div>
+                              <span>Details</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-
-                  {/* 3 Column Action Buttons: [Request Items]  |  [Take Back]  |  [Details] */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr 1fr',
-                    margin: '0 -1.15rem',
-                    paddingTop: '0.35rem'
-                  }}>
-                    {/* 1. Request Items (Items Needed More) */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedSiteForIssue(site);
-                        setIssueFormData(prev => ({
-                          ...prev,
-                          challanNo: `REQ/${new Date().getFullYear()}/${Math.floor(100 + Math.random() * 900)}`
-                        }));
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '0.45rem',
-                        background: 'transparent',
-                        border: 'none',
-                        borderRight: '1px solid #f3f3f3',
-                        padding: '0.65rem 0.2rem',
-                        cursor: 'pointer',
-                        fontSize: '0.86rem',
-                        fontWeight: 700,
-                        color: '#000000'
-                      }}
-                    >
-                      <div style={{
-                        width: '26px',
-                        height: '26px',
-                        borderRadius: '50%',
-                        background: '#e6657c', // Pinkish red circle from screenshot
-                        color: '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0
-                      }}>
-                        {/* [-> icon */}
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                          <polyline points="16 17 21 12 16 7" />
-                          <line x1="21" y1="12" x2="9" y2="12" />
-                        </svg>
-                      </div>
-                      <span>Request Items</span>
-                    </button>
-
-                    {/* 2. Take Back */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedSiteForReceive(site);
-                        setReceiveFormData(prev => ({
-                          ...prev,
-                          returnChallanNo: `RC/${new Date().getFullYear()}/${Math.floor(100 + Math.random() * 900)}`
-                        }));
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '0.45rem',
-                        background: 'transparent',
-                        border: 'none',
-                        borderRight: '1px solid #f3f3f3',
-                        padding: '0.65rem 0.2rem',
-                        cursor: 'pointer',
-                        fontSize: '0.86rem',
-                        fontWeight: 700,
-                        color: '#000000'
-                      }}
-                    >
-                      <div style={{
-                        width: '26px',
-                        height: '26px',
-                        borderRadius: '50%',
-                        background: '#37a23a', // Emerald green circle from screenshot
-                        color: '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0
-                      }}>
-                        {/* ->] icon */}
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
-                          <polyline points="10 17 15 12 10 7" />
-                          <line x1="15" y1="12" x2="3" y2="12" />
-                        </svg>
-                      </div>
-                      <span>Take Back</span>
-                    </button>
-
-                    {/* 3. Details */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSiteForDetails(site)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '0.45rem',
-                        background: 'transparent',
-                        border: 'none',
-                        padding: '0.65rem 0.2rem',
-                        cursor: 'pointer',
-                        fontSize: '0.86rem',
-                        fontWeight: 700,
-                        color: '#000000'
-                      }}
-                    >
-                      <div style={{
-                        width: '26px',
-                        height: '26px',
-                        borderRadius: '50%',
-                        background: '#444444', // Dark circle from screenshot
-                        color: '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0
-                      }}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
-                      </div>
-                      <span>Details</span>
-                    </button>
-                  </div>
-                </div>
-              )))}
+                ));
+              })()}
             </div>
 
           </div>
@@ -3321,9 +4353,531 @@ export default function ClientPortal({
       )}
 
       {/* ========================================================================= */}
-      {/* SLIDE 1: REQUEST MATERIAL QUOTATION                                       */}
+      {/* NOTIFICATIONS TAB: 3 SECTIONS (QUOTATIONS, LABOUR APPROVALS, GENERAL MAIL)*/}
       {/* ========================================================================= */}
-      {activeSlide === 'request' && (
+      {activeSlide === 'notifications' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          
+          {/* Sub-Navigation: Pending Approvals | Quotation History | Daily Labour History */}
+          <div style={{
+            display: 'flex',
+            background: '#ffffff',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            padding: '4px',
+            gap: '4px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            overflowX: 'auto',
+            scrollbarWidth: 'none',
+            WebkitOverflowScrolling: 'touch'
+          }}>
+            <button
+              type="button"
+              className={`btn btn-sm ${notificationsActiveTab === 'pending' ? 'btn-primary' : 'btn-outline'}`}
+              style={{
+                flex: '1 0 auto',
+                justifyContent: 'center',
+                fontSize: '0.8rem',
+                borderRadius: '8px',
+                border: notificationsActiveTab === 'pending' ? 'none' : '1px solid transparent',
+                padding: '0.55rem 0.65rem',
+                gap: '0.35rem',
+                whiteSpace: 'nowrap',
+                minWidth: 0
+              }}
+              onClick={() => setNotificationsActiveTab('pending')}
+            >
+              <Clock size={14} style={{ flexShrink: 0 }} />
+              <span>Pending Approvals</span>
+              {totalPendingActionsCount > 0 ? (
+                <span style={{
+                  background: '#e11d48',
+                  color: '#ffffff',
+                  padding: '1px 5px',
+                  borderRadius: '999px',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  flexShrink: 0
+                }}>
+                  {totalPendingActionsCount}
+                </span>
+              ) : (
+                <span style={{
+                  background: notificationsActiveTab === 'pending' ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                  color: notificationsActiveTab === 'pending' ? '#ffffff' : '#475569',
+                  padding: '1px 5px',
+                  borderRadius: '999px',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  flexShrink: 0
+                }}>
+                  0
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className={`btn btn-sm ${notificationsActiveTab === 'quotations' ? 'btn-primary' : 'btn-outline'}`}
+              style={{
+                flex: '1 0 auto',
+                justifyContent: 'center',
+                fontSize: '0.8rem',
+                borderRadius: '8px',
+                border: notificationsActiveTab === 'quotations' ? 'none' : '1px solid transparent',
+                padding: '0.55rem 0.65rem',
+                gap: '0.35rem',
+                whiteSpace: 'nowrap',
+                minWidth: 0
+              }}
+              onClick={() => setNotificationsActiveTab('quotations')}
+            >
+              <Send size={14} style={{ flexShrink: 0 }} />
+              <span>Quotation History</span>
+              <span style={{
+                background: notificationsActiveTab === 'quotations' ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                color: notificationsActiveTab === 'quotations' ? '#ffffff' : '#475569',
+                padding: '1px 5px',
+                borderRadius: '999px',
+                fontSize: '0.65rem',
+                fontWeight: 800,
+                flexShrink: 0
+              }}>
+                {clientQuotations.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              className={`btn btn-sm ${notificationsActiveTab === 'labour' ? 'btn-primary' : 'btn-outline'}`}
+              style={{
+                flex: '1 0 auto',
+                justifyContent: 'center',
+                fontSize: '0.8rem',
+                borderRadius: '8px',
+                border: notificationsActiveTab === 'labour' ? 'none' : '1px solid transparent',
+                padding: '0.55rem 0.65rem',
+                gap: '0.35rem',
+                whiteSpace: 'nowrap',
+                minWidth: 0
+              }}
+              onClick={() => setNotificationsActiveTab('labour')}
+            >
+              <HardHat size={14} style={{ flexShrink: 0 }} />
+              <span>Daily Labour</span>
+              {pendingApprovalsCount > 0 ? (
+                <span style={{
+                  background: '#e11d48',
+                  color: '#ffffff',
+                  padding: '1px 5px',
+                  borderRadius: '999px',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  flexShrink: 0
+                }}>
+                  {pendingApprovalsCount}
+                </span>
+              ) : (
+                <span style={{
+                  background: notificationsActiveTab === 'labour' ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                  color: notificationsActiveTab === 'labour' ? '#ffffff' : '#475569',
+                  padding: '1px 5px',
+                  borderRadius: '999px',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  flexShrink: 0
+                }}>
+                  {clientWorkerLogs.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className={`btn btn-sm ${notificationsActiveTab === 'notifications' ? 'btn-primary' : 'btn-outline'}`}
+              style={{
+                flex: '1 0 auto',
+                justifyContent: 'center',
+                fontSize: '0.8rem',
+                borderRadius: '8px',
+                border: notificationsActiveTab === 'notifications' ? 'none' : '1px solid transparent',
+                padding: '0.55rem 0.65rem',
+                gap: '0.35rem',
+                whiteSpace: 'nowrap',
+                minWidth: 0
+              }}
+              onClick={() => setNotificationsActiveTab('notifications')}
+            >
+              <Bell size={14} style={{ flexShrink: 0 }} />
+              <span>Notifications</span>
+              {unreadNotificationCount > 0 ? (
+                <span style={{
+                  background: '#2563eb',
+                  color: '#ffffff',
+                  padding: '1px 5px',
+                  borderRadius: '999px',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  flexShrink: 0
+                }}>
+                  {unreadNotificationCount}
+                </span>
+              ) : (
+                <span style={{
+                  background: notificationsActiveTab === 'notifications' ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                  color: notificationsActiveTab === 'notifications' ? '#ffffff' : '#475569',
+                  padding: '1px 5px',
+                  borderRadius: '999px',
+                  fontSize: '0.65rem',
+                  fontWeight: 800,
+                  flexShrink: 0
+                }}>
+                  {systemNotifications.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* SUB-SECTION 1: UNIFIED PENDING APPROVALS & ACTION ITEMS                   */}
+          {/* ========================================================================= */}
+          {notificationsActiveTab === 'pending' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              
+              {/* Header Info */}
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '14px',
+                border: '1px solid #e2e8f0',
+                padding: '0.9rem 1.1rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+                    <div style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      background: totalPendingActionsCount > 0 ? '#fff1f2' : '#f0fdf4',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      {totalPendingActionsCount > 0 ? (
+                        <Clock size={18} color="#e11d48" />
+                      ) : (
+                        <CheckCircle2 size={18} color="#10b981" />
+                      )}
+                    </div>
+                    <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
+                      Pending Approvals &amp; Sign-Offs
+                    </h3>
+                  </div>
+                  <p style={{ fontSize: '0.78rem', color: '#64748b', margin: '3px 0 0 0' }}>
+                    Actionable items: review quotation rate proposals &amp; certify daily labour logs in one place.
+                  </p>
+                </div>
+
+                <div style={{
+                  padding: '4px 10px',
+                  borderRadius: '999px',
+                  fontSize: '0.75rem',
+                  fontWeight: 800,
+                  background: totalPendingActionsCount > 0 ? '#ffe4e6' : '#dcfce7',
+                  color: totalPendingActionsCount > 0 ? '#be123c' : '#15803d'
+                }}>
+                  {totalPendingActionsCount} Action Item{totalPendingActionsCount === 1 ? '' : 's'} Pending
+                </div>
+              </div>
+
+              {/* Empty State when everything is approved */}
+              {totalPendingActionsCount === 0 && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '14px',
+                  border: '1.5px dashed #cbd5e1',
+                  padding: '2.5rem 1.5rem',
+                  textAlign: 'center',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '0.65rem'
+                }}>
+                  <div style={{
+                    width: '54px',
+                    height: '54px',
+                    borderRadius: '50%',
+                    background: '#f0fdf4',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#16a34a'
+                  }}>
+                    <CheckCircle2 size={30} />
+                  </div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#0f172a' }}>
+                    All Caught Up!
+                  </div>
+                  <div style={{ fontSize: '0.82rem', color: '#64748b', maxWidth: '380px', lineHeight: 1.5 }}>
+                    There are no pending quotations awaiting work order approval, and no daily labour logs awaiting sign-off.
+                  </div>
+                </div>
+              )}
+
+              {/* 1. Pending Quotations Section */}
+              {pendingQuotations.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <FileText size={16} color="var(--orange-primary)" />
+                      <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>
+                        Quotation Requests Awaiting Action ({pendingQuotations.length})
+                      </span>
+                    </div>
+                  </div>
+
+                  {pendingQuotations.map(quot => {
+                    const isRatesProposed = quot.status === 'quotation_sent';
+                    return (
+                      <div
+                        key={quot.id}
+                        style={{
+                          background: '#ffffff',
+                          borderRadius: '14px',
+                          border: `1.5px solid ${isRatesProposed ? '#fbbf24' : '#93c5fd'}`,
+                          padding: '1rem',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.75rem'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '2px' }}>
+                              <span className="mono" style={{ fontSize: '0.92rem', fontWeight: 800, color: 'var(--orange-primary)' }}>
+                                {quot.quotationNo}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>•</span>
+                              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>
+                                📍 {quot.siteName}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.76rem', color: '#64748b' }}>
+                              Purpose: <strong>{quot.workPurpose}</strong>
+                            </div>
+                          </div>
+
+                          <div>
+                            {isRatesProposed ? (
+                              <span style={{
+                                background: '#fef3c7',
+                                color: '#b45309',
+                                fontSize: '0.7rem',
+                                fontWeight: 800,
+                                padding: '3px 8px',
+                                borderRadius: '999px',
+                                border: '1px solid #fde68a'
+                              }}>
+                                Rates Proposed • Awaiting Sign-Off
+                              </span>
+                            ) : (
+                              <span style={{
+                                background: '#eff6ff',
+                                color: '#1d4ed8',
+                                fontSize: '0.7rem',
+                                fontWeight: 800,
+                                padding: '3px 8px',
+                                borderRadius: '999px',
+                                border: '1px solid #bfdbfe'
+                              }}>
+                                ⏱ Awaiting Yard Rates
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Items preview */}
+                        {quot.items && quot.items.length > 0 && (
+                          <div style={{ background: '#f8fafc', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                            <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '4px' }}>
+                              Equipment Items ({quot.items.length})
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                              {quot.items.slice(0, 4).map((it, idx) => (
+                                <span key={idx} style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '2px 7px', fontSize: '0.73rem', color: '#334155' }}>
+                                  {it.name}: <strong>{it.qty} {it.unit || 'Pcs'}</strong>
+                                </span>
+                              ))}
+                              {quot.items.length > 4 && (
+                                <span style={{ fontSize: '0.72rem', color: '#64748b', alignSelf: 'center' }}>
+                                  +{quot.items.length - 4} more items
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Action buttons */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', paddingTop: '0.45rem', borderTop: '1px dashed #e2e8f0' }}>
+                          <span style={{ fontSize: '0.73rem', color: '#64748b' }}>
+                            Submitted on {quot.date || 'Recent'}
+                          </span>
+
+                          <div style={{ display: 'flex', gap: '0.45rem' }}>
+                            {isRatesProposed && (
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                style={{ fontSize: '0.78rem', padding: '0.4rem 0.85rem', fontWeight: 800 }}
+                                onClick={() => handleAcceptQuotation(quot)}
+                              >
+                                <CheckCircle2 size={14} />
+                                <span>Accept &amp; Issue Work Order</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem' }}
+                              onClick={() => setNotificationsActiveTab('quotations')}
+                            >
+                              <span>View Full Quotation</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 2. Pending Labour Approvals Section */}
+              {pendingLabourLogs.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: pendingQuotations.length > 0 ? '0.5rem' : 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <HardHat size={16} color="#e11d48" />
+                      <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b' }}>
+                        Daily Labour Logs Awaiting Sign-Off ({pendingLabourLogs.length})
+                      </span>
+                    </div>
+                  </div>
+
+                  {pendingLabourLogs.map(log => {
+                    const billing = calculateLabourBilling(log);
+                    return (
+                      <div
+                        key={log.id}
+                        style={{
+                          background: '#ffffff',
+                          borderRadius: '14px',
+                          border: '1.5px solid #fecdd3',
+                          borderLeft: '5px solid #e11d48',
+                          padding: '1rem',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.03)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.75rem'
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '2px' }}>
+                              <span className="mono" style={{ fontSize: '0.92rem', fontWeight: 800, color: '#9f1239' }}>
+                                {log.id}
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>•</span>
+                              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f172a' }}>
+                                📍 {log.siteName}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.76rem', color: '#64748b' }}>
+                              Supervisor / Gang: <strong>{log.workerName}</strong> • {log.date}
+                            </div>
+                          </div>
+
+                          <div>
+                            <span style={{
+                              background: '#ffe4e6',
+                              color: '#be123c',
+                              fontSize: '0.7rem',
+                              fontWeight: 800,
+                              padding: '3px 8px',
+                              borderRadius: '999px',
+                              border: '1px solid #fecdd3'
+                            }}>
+                              Awaiting Client Sign-Off
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Staging Metrics */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.5rem', background: '#f8fafc', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                          <div>
+                            <div style={{ fontSize: '0.68rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Work Executed</div>
+                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
+                              {log.workType || 'Slab Shuttering & Prop Staging'}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '0.68rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Floor / Location</div>
+                            <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
+                              {log.floorLevel || 'General Site Staging'}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '0.68rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Area Certified</div>
+                            <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--orange-primary)', marginTop: '2px' }}>
+                              {log.areaCompletedSqft || 0} Sq.Ft
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '0.68rem', color: '#64748b', textTransform: 'uppercase', fontWeight: 700 }}>Staging Bill</div>
+                            <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#059669', marginTop: '2px' }}>
+                              ₹{billing.toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.45rem', paddingTop: '0.45rem', borderTop: '1px dashed #e2e8f0' }}>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-sm"
+                            style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem' }}
+                            onClick={() => setSelectedLogToApprove(log)}
+                          >
+                            <span>Inspect &amp; Review</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            style={{ fontSize: '0.78rem', padding: '0.4rem 0.85rem', fontWeight: 800, background: '#e11d48', borderColor: '#e11d48' }}
+                            onClick={() => handleConfirmApproval(log, true)}
+                          >
+                            <CheckCircle2 size={14} />
+                            <span>Sign-Off &amp; Approve</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+            </div>
+          )}
+
+          {/* SUB-SECTION 2: QUOTATION HISTORY */}
+          {notificationsActiveTab === 'quotations' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <section id="client-quotation-request-form" className="card" style={{
           borderTop: '4px solid var(--orange-primary)',
@@ -3371,16 +4925,18 @@ export default function ClientPortal({
                     <span>+ New Request</span>
                   </button>
 
-                  <button 
-                    type="button" 
-                    className="btn btn-outline btn-sm"
-                    style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#ffffff', fontWeight: 700 }}
-                    onClick={() => handleDeleteQuotation(lastSubmittedQuotation.id, lastSubmittedQuotation.quotationNo)}
-                    title="Delete this quotation request"
-                  >
-                    <Trash2 size={14} />
-                    <span>Delete Request</span>
-                  </button>
+                  {!(lastSubmittedQuotation?.status === 'work_order_created' || lastSubmittedQuotation?.status === 'approved') && (
+                    <button 
+                      type="button" 
+                      className="btn btn-outline btn-sm"
+                      style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#ffffff', fontWeight: 700 }}
+                      onClick={() => handleDeleteQuotation(lastSubmittedQuotation.id, lastSubmittedQuotation.quotationNo)}
+                      title="Delete this quotation request"
+                    >
+                      <Trash2 size={14} />
+                      <span>Delete Request</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -3449,15 +5005,17 @@ export default function ClientPortal({
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <button 
-                  type="button" 
-                  className="btn btn-outline btn-sm"
-                  style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#ffffff', fontWeight: 700 }}
-                  onClick={() => handleDeleteQuotation(lastSubmittedQuotation.id, lastSubmittedQuotation.quotationNo)}
-                >
-                  <Trash2 size={14} />
-                  <span>Delete Quotation ({lastSubmittedQuotation.quotationNo})</span>
-                </button>
+                {!(lastSubmittedQuotation?.status === 'work_order_created' || lastSubmittedQuotation?.status === 'approved') && (
+                  <button 
+                    type="button" 
+                    className="btn btn-outline btn-sm"
+                    style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#ffffff', fontWeight: 700 }}
+                    onClick={() => handleDeleteQuotation(lastSubmittedQuotation.id, lastSubmittedQuotation.quotationNo)}
+                  >
+                    <Trash2 size={14} />
+                    <span>Delete Quotation ({lastSubmittedQuotation.quotationNo})</span>
+                  </button>
+                )}
 
                 <button 
                   type="button" 
@@ -3817,23 +5375,27 @@ export default function ClientPortal({
                     </h3>
                   </div>
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '3px 0 0 0' }}>
-                    View status, commercial rates, or delete older quotation requests and staging inquiries
+                    View status, commercial rates, or manage older unapproved quotation requests and staging inquiries
                   </p>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {clientQuotations.length > 1 && (
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#ffffff', fontWeight: 700, fontSize: '0.78rem' }}
-                      onClick={handleDeleteAllClientQuotations}
-                      title="Delete all older quotation requests"
-                    >
-                      <Trash2 size={13} />
-                      <span>Delete All Older ({clientQuotations.length})</span>
-                    </button>
-                  )}
+                  {(() => {
+                    const unapprovedCount = clientQuotations.filter(q => q.status !== 'work_order_created' && q.status !== 'approved').length;
+                    if (unapprovedCount <= 1) return null;
+                    return (
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        style={{ color: '#e11d48', borderColor: '#fca5a5', background: '#ffffff', fontWeight: 700, fontSize: '0.78rem' }}
+                        onClick={handleDeleteAllClientQuotations}
+                        title="Delete unapproved older quotation requests"
+                      >
+                        <Trash2 size={13} />
+                        <span>Delete Older Inquiries ({unapprovedCount})</span>
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -3906,6 +5468,7 @@ export default function ClientPortal({
                     const isWorkOrder = quot.status === 'work_order_created';
                     const isQuotationSent = quot.status === 'quotation_sent';
                     const isRequested = quot.status === 'requested';
+                    const isApproved = isWorkOrder || quot.status === 'approved';
 
                     return (
                       <div
@@ -3962,24 +5525,26 @@ export default function ClientPortal({
                               </div>
                             </div>
 
-                            {/* Direct Delete button */}
-                            <button
-                              type="button"
-                              className="btn btn-outline btn-sm"
-                              style={{
-                                color: '#e11d48',
-                                borderColor: '#fca5a5',
-                                background: '#ffffff',
-                                padding: '0.3rem 0.6rem',
-                                fontSize: '0.75rem',
-                                fontWeight: 700
-                              }}
-                              onClick={() => handleDeleteQuotation(quot.id, quot.quotationNo)}
-                              title="Delete this older quotation request"
-                            >
-                              <Trash2 size={13} />
-                              <span>Delete</span>
-                            </button>
+                            {/* Direct Delete button - never shown for approved quotations */}
+                            {!isApproved && (
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                style={{
+                                  color: '#e11d48',
+                                  borderColor: '#fca5a5',
+                                  background: '#ffffff',
+                                  padding: '0.3rem 0.6rem',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 700
+                                }}
+                                onClick={() => handleDeleteQuotation(quot.id, quot.quotationNo)}
+                                title="Delete this unapproved quotation request"
+                              >
+                                <Trash2 size={13} />
+                                <span>Delete</span>
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -4082,22 +5647,24 @@ export default function ClientPortal({
                             </div>
 
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
-                              {/* Prominent Delete Quotation Button */}
-                              <button
-                                type="button"
-                                className="btn btn-outline btn-sm"
-                                style={{
-                                  color: '#e11d48',
-                                  borderColor: '#fca5a5',
-                                  background: '#ffffff',
-                                  fontWeight: 700,
-                                  fontSize: '0.76rem'
-                                }}
-                                onClick={() => handleDeleteQuotation(quot.id, quot.quotationNo)}
-                              >
-                                <Trash2 size={13} />
-                                <span>Delete Quotation</span>
-                              </button>
+                              {/* Prominent Delete Quotation Button - never shown for approved quotations */}
+                              {!isApproved && (
+                                <button
+                                  type="button"
+                                  className="btn btn-outline btn-sm"
+                                  style={{
+                                    color: '#e11d48',
+                                    borderColor: '#fca5a5',
+                                    background: '#ffffff',
+                                    fontWeight: 700,
+                                    fontSize: '0.76rem'
+                                  }}
+                                  onClick={() => handleDeleteQuotation(quot.id, quot.quotationNo)}
+                                >
+                                  <Trash2 size={13} />
+                                  <span>Delete Quotation</span>
+                                </button>
+                              )}
 
                               {isQuotationSent && (
                                 <button
@@ -4146,20 +5713,15 @@ export default function ClientPortal({
       )}
 
       {/* ========================================================================= */}
-      {/* SLIDE 3: DAILY LABOUR WORK, BILLING & APPROVED THINGS HUB                 */}
+      {/* SUB-SECTION 2: DAILY LABOUR WORK & APPROVALS                              */}
       {/* ========================================================================= */}
-      {activeSlide === 'worker_progress' && (() => {
+      {notificationsActiveTab === 'labour' && (() => {
         const filteredLogs = selectedSiteFilter === 'ALL'
           ? clientWorkerLogs
           : clientWorkerLogs.filter(l => (l.siteName || '').toLowerCase().includes(selectedSiteFilter.toLowerCase()) || selectedSiteFilter.toLowerCase().includes((l.siteName || '').toLowerCase()));
 
         const approvedLogs = filteredLogs.filter(l => l.status === 'approved');
         const pendingLogs = filteredLogs.filter(l => l.status === 'pending_approval');
-        const totalApprovedBilling = approvedLogs.reduce((sum, l) => sum + calculateLabourBilling(l), 0);
-        const totalApprovedArea = approvedLogs.reduce((sum, l) => sum + (Number(l.areaCompletedSqft) || 0), 0);
-        const totalPendingBilling = pendingLogs.reduce((sum, l) => sum + calculateLabourBilling(l), 0);
-        const totalCrewDays = filteredLogs.reduce((sum, l) => sum + (Number(l.laborCount) || 1), 0);
-
         const displayLogs = labourBillingActiveSubTab === 'approved' 
           ? approvedLogs 
           : labourBillingActiveSubTab === 'pending' 
@@ -4169,73 +5731,7 @@ export default function ClientPortal({
         return (
           <section id="client-worker-progress-section" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             
-            {/* 1. Header with Title & Action Buttons */}
-            <div style={{
-              background: '#ffffff',
-              borderRadius: '14px',
-              border: '1px solid #e2e8f0',
-              padding: '1rem 1.15rem',
-              display: 'flex',
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '0.85rem',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
-            }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-                  <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#fff7ed', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <HardHat size={20} color="var(--orange-primary)" />
-                  </div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: '#111827' }}>
-                    Daily Labour Work, Billing & Approvals
-                  </h3>
-                </div>
-                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '4px 0 0 0' }}>
-                  Track crew progress, inspect & certify completed staging work, and compute official labour billing in one unified section
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
-                  style={{
-                    fontSize: '0.8rem',
-                    background: '#ffffff',
-                    color: '#111827',
-                    borderColor: '#cbd5e1',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
-                    padding: '0.45rem 0.85rem',
-                    fontWeight: 700
-                  }}
-                  onClick={() => setIsLabourStatementModalOpen(true)}
-                >
-                  <FileText size={15} color="var(--orange-primary)" />
-                  <span>View Labour Bill Statement</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  style={{
-                    fontSize: '0.8rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
-                    padding: '0.45rem 0.85rem'
-                  }}
-                  onClick={() => setIsAddLabourModalOpen(true)}
-                >
-                  <Plus size={15} />
-                  <span>+ Record Daily Labour</span>
-                </button>
-              </div>
-            </div>
-
-            {/* 2. Site Filter Pills */}
+            {/* Site Filter Pills */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', overflowX: 'auto', paddingBottom: '2px', scrollbarWidth: 'none' }}>
               <span style={{ fontSize: '0.76rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', flexShrink: 0 }}>Site:</span>
               <button
@@ -4257,102 +5753,7 @@ export default function ClientPortal({
               ))}
             </div>
 
-            {/* 3. Four Core Metrics (Certified Bill, Approved Things, Pending Approvals, Rate) */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
-              {/* Card 1: Certified Labour Bill */}
-              <div style={{
-                background: '#ffffff',
-                border: '1.5px solid #a7f3d0',
-                borderRadius: '12px',
-                padding: '0.9rem',
-                borderLeft: '5px solid #10b981',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.7rem', color: '#047857', fontWeight: 800 }}>CERTIFIED LABOUR BILL</span>
-                  <CreditCard size={15} color="#059669" />
-                </div>
-                <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 900, color: '#065f46', marginTop: '4px' }}>
-                  ₹{totalApprovedBilling.toLocaleString('en-IN')}
-                </div>
-                <div style={{ fontSize: '0.74rem', color: '#6b7280', marginTop: '3px' }}>
-                  {totalApprovedArea.toLocaleString()} Sq.Ft Certified
-                </div>
-              </div>
-
-              {/* Card 2: Approved Things */}
-              <div style={{
-                background: '#ffffff',
-                border: '1.5px solid #fed7aa',
-                borderRadius: '12px',
-                padding: '0.9rem',
-                borderLeft: '5px solid var(--orange-primary)',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.7rem', color: '#c2410c', fontWeight: 800 }}>APPROVED THINGS</span>
-                  <CheckCircle2 size={15} color="var(--orange-primary)" />
-                </div>
-                <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 900, color: '#9a3412', marginTop: '4px' }}>
-                  {approvedLogs.length} Certified
-                </div>
-                <div style={{ fontSize: '0.74rem', color: '#6b7280', marginTop: '3px' }}>
-                  Quality Inspected & Certified
-                </div>
-              </div>
-
-              {/* Card 3: Pending Approvals */}
-              <div style={{
-                background: '#ffffff',
-                border: '1.5px solid #fecdd3',
-                borderRadius: '12px',
-                padding: '0.9rem',
-                borderLeft: '5px solid #e11d48',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.7rem', color: '#be123c', fontWeight: 800 }}>PENDING SIGN-OFF</span>
-                  <Clock size={15} color="#e11d48" />
-                </div>
-                <div className="mono" style={{ fontSize: '1.45rem', fontWeight: 900, color: '#9f1239', marginTop: '4px' }}>
-                  {pendingLogs.length} Awaiting
-                </div>
-                <div style={{ fontSize: '0.74rem', color: '#6b7280', marginTop: '3px' }}>
-                  Estimated Value: ₹{totalPendingBilling.toLocaleString('en-IN')}
-                </div>
-              </div>
-
-              {/* Card 4: Labour Billing Rate Customizer */}
-              <div style={{
-                background: '#ffffff',
-                border: '1.5px solid #e2e8f0',
-                borderRadius: '12px',
-                padding: '0.9rem',
-                borderLeft: '5px solid #64748b',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 800 }}>LABOUR RATE SETTING</span>
-                  <Ruler size={15} color="#64748b" />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '4px' }}>
-                  <span style={{ fontSize: '1.15rem', fontWeight: 800 }}>₹</span>
-                  <input
-                    type="number"
-                    className="form-input mono"
-                    style={{ width: '70px', padding: '3px 6px', fontSize: '1.05rem', fontWeight: 800, textAlign: 'center' }}
-                    value={labourRatePerSqft}
-                    onChange={(e) => setLabourRatePerSqft(Number(e.target.value) || 0)}
-                  />
-                  <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>/ Sq.Ft</span>
-                </div>
-                <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: '3px' }}>
-                  Live rate recalculates all bills
-                </div>
-              </div>
-            </div>
-
-            {/* 4. Sub-Navigation Tabs within this One Section */}
+            {/* 4. Sub-Navigation Tabs: Only Approvals */}
             <div style={{
               display: 'flex',
               gap: '0.4rem',
@@ -4363,10 +5764,9 @@ export default function ClientPortal({
               scrollbarWidth: 'none'
             }}>
               {[
-                { id: 'all', label: `All Labour Work (${filteredLogs.length})` },
                 { id: 'pending', label: `⏱ Pending Sign-Off (${pendingLogs.length})` },
                 { id: 'approved', label: `✓ Approved Things (${approvedLogs.length})` },
-                { id: 'billing', label: `💵 Labour Billing & Statement` }
+                { id: 'all', label: `All Labour Logs (${filteredLogs.length})` }
               ].map(sub => (
                 <button
                   key={sub.id}
@@ -4392,132 +5792,8 @@ export default function ClientPortal({
               ))}
             </div>
 
-            {/* 5. Sub-Tab Content */}
-
-            {/* VIEW A: LABOUR BILLING TABLE & STATEMENT */}
-            {labourBillingActiveSubTab === 'billing' && (
-              <div style={{
-                background: '#ffffff',
-                borderRadius: '14px',
-                border: '1px solid #e2e8f0',
-                overflow: 'hidden',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
-              }}>
-                <div style={{
-                  padding: '0.85rem 1.15rem',
-                  background: '#f8fafc',
-                  borderBottom: '1px solid #e2e8f0',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: '0.65rem'
-                }}>
-                  <div>
-                    <h4 style={{ fontSize: '0.96rem', fontWeight: 800, margin: 0, color: '#111827' }}>
-                      Certified Labour Billing & Measurement Sheet
-                    </h4>
-                    <p style={{ fontSize: '0.76rem', color: '#64748b', margin: '2px 0 0 0' }}>
-                      Itemized calculation based on verified staging area and certified gang logs
-                    </p>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
-                      onClick={() => window.print()}
-                    >
-                      <Printer size={14} />
-                      <span>Print Table</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem' }}
-                      onClick={() => setIsLabourStatementModalOpen(true)}
-                    >
-                      <FileText size={14} />
-                      <span>Formal Bill Statement</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-                    <thead>
-                      <tr style={{ background: '#f1f5f9', borderBottom: '1.5px solid #cbd5e1', textAlign: 'left' }}>
-                        <th style={{ padding: '8px 12px' }}>Date</th>
-                        <th style={{ padding: '8px 12px' }}>Project Site</th>
-                        <th style={{ padding: '8px 12px' }}>Work Description & Floor</th>
-                        <th style={{ padding: '8px 12px' }}>Gang Leader / Crew</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Certified Area</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Labour Rate</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Billed Amount (₹)</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'center' }}>Approval & Quality</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredLogs.map((log) => {
-                        const logBilling = calculateLabourBilling(log);
-                        const isApproved = log.status === 'approved';
-                        return (
-                          <tr key={log.id} style={{ borderBottom: '1px solid #f1f5f9', background: isApproved ? '#fafdfb' : '#ffffff' }}>
-                            <td style={{ padding: '8px 12px', fontWeight: 600 }}>{log.date}</td>
-                            <td style={{ padding: '8px 12px', fontWeight: 700, color: '#111827' }}>{log.siteName}</td>
-                            <td style={{ padding: '8px 12px' }}>
-                              <strong>{log.workType}</strong>
-                              <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{log.floorLevel}</div>
-                            </td>
-                            <td style={{ padding: '8px 12px' }}>
-                              {log.workerName}
-                              <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{log.laborCount} crew • {log.hoursWorked || 8} hrs</div>
-                            </td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                              {log.areaCompletedSqft} Sq.Ft
-                            </td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
-                              ₹{labourRatePerSqft}
-                            </td>
-                            <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 800, color: isApproved ? '#059669' : '#d97706', fontSize: '0.88rem' }}>
-                              ₹{logBilling.toLocaleString('en-IN')}
-                            </td>
-                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                              <span className={`badge ${isApproved ? 'badge-gst' : 'badge-non-gst'}`} style={{ fontSize: '0.68rem' }}>
-                                {isApproved ? '✓ CERTIFIED' : '⏱ PENDING'}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ background: '#f8fafc', fontWeight: 900, borderTop: '2px solid #cbd5e1' }}>
-                        <td colSpan="4" style={{ padding: '10px 12px', fontSize: '0.85rem' }}>
-                          TOTAL CERTIFIED LABOUR BILL ({approvedLogs.length} Approved Things):
-                        </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--orange-primary)' }}>
-                          {totalApprovedArea.toLocaleString()} Sq.Ft
-                        </td>
-                        <td style={{ padding: '10px 12px' }}></td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#047857', fontSize: '1.05rem' }}>
-                          ₹{totalApprovedBilling.toLocaleString('en-IN')}
-                        </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'center', color: '#059669', fontSize: '0.74rem' }}>
-                          Sign-Off Verified
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* VIEW B: CARDS FOR ALL, PENDING, OR APPROVED THINGS */}
-            {labourBillingActiveSubTab !== 'billing' && (
-              displayLogs.length > 0 ? (
+            {/* 5. Sub-Tab Content: Approvals Cards List */}
+            {displayLogs.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                   {displayLogs.map((log) => {
                     const isPending = log.status === 'pending_approval';
@@ -4701,15 +5977,226 @@ export default function ClientPortal({
                         : 'No Worker Logs Reported Yet'}
                   </h4>
                   <p style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '4px' }}>
-                    Click "+ Record Daily Labour" above to log staging progress and generate certified billing.
+                    No staging progress logs submitted for this filter.
                   </p>
                 </div>
-              )
-            )}
+              )}
 
           </section>
         );
       })()}
+
+          {/* ========================================================================= */}
+          {/* SUB-SECTION 4: SYSTEM NOTIFICATIONS (RENAMED FROM MAIL TO NOTIFICATIONS) */}
+          {/* ========================================================================= */}
+          {notificationsActiveTab === 'notifications' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '16px',
+                border: '1px solid #e2e8f0',
+                padding: '1rem',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+              }}>
+                {/* Header Row */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.85rem', paddingBottom: '0.65rem', borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
+                      background: '#eff6ff',
+                      color: '#2563eb',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <Bell size={18} />
+                    </div>
+                    <div>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, color: '#0f172a' }}>
+                        Notifications
+                      </h3>
+                      <p style={{ fontSize: '0.72rem', color: '#64748b', margin: '1px 0 0 0' }}>
+                        {unreadNotificationCount} unread • Logistics, invoices, work orders &amp; site alerts
+                      </p>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                    <div style={{ display: 'flex', background: '#f8fafc', padding: '2px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationFilter('ALL')}
+                        style={{
+                          background: notificationFilter === 'ALL' ? '#ffffff' : 'transparent',
+                          color: notificationFilter === 'ALL' ? '#0f172a' : '#64748b',
+                          fontWeight: notificationFilter === 'ALL' ? 700 : 500,
+                          border: 'none',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontSize: '0.72rem',
+                          cursor: 'pointer',
+                          boxShadow: notificationFilter === 'ALL' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'
+                        }}
+                      >
+                        All ({systemNotifications.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationFilter('UNREAD')}
+                        style={{
+                          background: notificationFilter === 'UNREAD' ? '#ffffff' : 'transparent',
+                          color: notificationFilter === 'UNREAD' ? '#2563eb' : '#64748b',
+                          fontWeight: notificationFilter === 'UNREAD' ? 700 : 500,
+                          border: 'none',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontSize: '0.72rem',
+                          cursor: 'pointer',
+                          boxShadow: notificationFilter === 'UNREAD' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none'
+                        }}
+                      >
+                        Unread ({unreadNotificationCount})
+                      </button>
+                    </div>
+
+                    {unreadNotificationCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={markAllNotificationsAsRead}
+                        className="btn btn-outline btn-sm"
+                        style={{ fontSize: '0.72rem', padding: '3px 8px', borderRadius: '6px' }}
+                      >
+                        Mark All as Read
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Notifications List */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                  {systemNotifications
+                    .filter(n => notificationFilter === 'ALL' ? true : !n.isRead)
+                    .map((item) => {
+                      const isUnread = !item.isRead;
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => toggleNotificationReadStatus(item.id)}
+                          style={{
+                            background: isUnread ? '#f0f9ff' : '#ffffff',
+                            border: `1.5px solid ${isUnread ? '#bae6fd' : '#e2e8f0'}`,
+                            borderRadius: '12px',
+                            padding: '0.85rem 1rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.45rem',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            boxShadow: isUnread ? '0 2px 8px rgba(14, 165, 233, 0.08)' : 'none'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              {isUnread ? (
+                                <span style={{
+                                  width: '9px',
+                                  height: '9px',
+                                  borderRadius: '50%',
+                                  background: '#0284c7',
+                                  display: 'inline-block',
+                                  boxShadow: '0 0 6px #0284c7',
+                                  flexShrink: 0
+                                }} />
+                              ) : (
+                                <span style={{
+                                  width: '9px',
+                                  height: '9px',
+                                  borderRadius: '50%',
+                                  background: '#cbd5e1',
+                                  display: 'inline-block',
+                                  flexShrink: 0
+                                }} />
+                              )}
+                              
+                              <div style={{ fontWeight: isUnread ? 800 : 600, fontSize: '0.88rem', color: isUnread ? '#0369a1' : '#1e293b' }}>
+                                {item.title}
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+                              <span style={{
+                                fontSize: '0.68rem',
+                                fontWeight: 700,
+                                padding: '2px 7px',
+                                borderRadius: '999px',
+                                background: isUnread ? '#0284c7' : '#f1f5f9',
+                                color: isUnread ? '#ffffff' : '#64748b'
+                              }}>
+                                {isUnread ? 'UNREAD' : 'READ'}
+                              </span>
+                              <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                                {item.time}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{ fontSize: '0.8rem', color: isUnread ? '#334155' : '#64748b', lineHeight: 1.45, paddingLeft: '17px' }}>
+                            {item.body}
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.35rem', borderTop: '1px dashed #e2e8f0', marginTop: '2px', paddingLeft: '17px' }}>
+                            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>
+                              Source: <strong style={{ color: '#0f172a' }}>{item.sender}</strong> • <span style={{ color: '#0284c7' }}>{item.category}</span>
+                            </span>
+                            <span style={{ fontSize: '0.7rem', color: '#0284c7', fontWeight: 700 }}>
+                              {isUnread ? 'Click to mark as read' : 'Click to mark as unread'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                  {systemNotifications.filter(n => notificationFilter === 'ALL' ? true : !n.isRead).length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#64748b' }}>
+                      <CheckCircle2 size={32} color="#10b981" style={{ marginBottom: '0.35rem' }} />
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>No notifications in this filter</div>
+                      <div style={{ fontSize: '0.75rem', marginTop: '2px' }}>You are completely caught up!</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SLIDE TAB 3: MORE / SETTINGS                                              */}
+      {/* ========================================================================= */}
+      {activeSlide === 'more' && (
+        <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+          <MoreSettingsPage 
+            currentUser={currentUser}
+            setCurrentUser={setCurrentUser}
+            company={company}
+            setCompany={setCompany}
+            users={users}
+            setUsers={setUsers}
+            inventory={inventory}
+            setInventory={setInventory}
+            challans={challans}
+            invoices={invoices}
+            quotations={quotations}
+            onLogout={onLogout}
+            onBack={() => setActiveSlide('projects')}
+            currentLanguage={currentLanguage}
+            onLanguageChange={setCurrentLanguage}
+          />
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* MODAL 1: REQUEST EXTRA ITEMS (Needed More Shuttering / Staging Material)   */}
@@ -5414,10 +6901,17 @@ export default function ClientPortal({
       {/* ========================================================================= */}
       {/* MODAL 7: PRINTABLE LABOUR WORK BILLING & CERTIFICATION STATEMENT          */}
       {/* ========================================================================= */}
+      {/* LABOUR WORK BILLING & CERTIFICATION STATEMENT MODAL                       */}
+      {/* ========================================================================= */}
       {isLabourStatementModalOpen && (() => {
-        const statementLogs = selectedSiteFilter === 'ALL'
-          ? clientWorkerLogs
-          : clientWorkerLogs.filter(l => (l.siteName || '').toLowerCase().includes(selectedSiteFilter.toLowerCase()) || selectedSiteFilter.toLowerCase().includes((l.siteName || '').toLowerCase()));
+        const activeTargetSite = selectedSiteForDetails ? selectedSiteForDetails.name : selectedSiteFilter;
+        const matched = (activeTargetSite && activeTargetSite !== 'ALL')
+          ? clientWorkerLogs.filter(l => 
+              (l.siteName || '').toLowerCase().includes(activeTargetSite.toLowerCase()) || 
+              activeTargetSite.toLowerCase().includes((l.siteName || '').toLowerCase())
+            )
+          : clientWorkerLogs;
+        const statementLogs = matched.length > 0 ? matched : clientWorkerLogs;
         
         const approvedStatementLogs = statementLogs.filter(l => l.status === 'approved');
         const totalStatementSqft = statementLogs.reduce((sum, l) => sum + (Number(l.areaCompletedSqft) || 0), 0);

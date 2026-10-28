@@ -32,19 +32,16 @@ export default function WorkerPortal({
 
   // Daily Work Upload Form State
   const [logForm, setLogForm] = useState({
-    siteName: defaultSite,
+    siteName: allSites[0]?.name || "",
+    section: "",
     date: new Date().toISOString().slice(0, 10),
-    workType: "Slab Shuttering & Staging",
-    floorLevel: "Tower B - 5th Floor Slab",
-    workCompletedSummary: "Installed 140 telescopic props, 90 shuttering plates, and leveled joists with laser alignment.",
-    areaCompletedSqft: 1500,
-    volumeCompletedCum: 135,
-    laborCount: 6,
+    workCompletedSummary: "",
+    laborCount: 4,
     hoursWorked: 8.0,
-    photoUrl: "https://images.unsplash.com/photo-1541888946425-d0fbb18615f8?w=500&auto=format&fit=crop&q=60"
+    photoUrl: ""
   });
 
-  const [previewImage, setPreviewImage] = useState(logForm.photoUrl);
+  const [previewImage, setPreviewImage] = useState("");
 
   // Filter logs for this worker
   const myLogs = workerLogs.filter(l => l.workerId === currentUser?.id || l.workerName === currentUser?.name);
@@ -67,26 +64,26 @@ export default function WorkerPortal({
     e.preventDefault();
 
     // Find client owner for this site
-    const siteObj = allSites.find(s => s.name === logForm.siteName);
+    const siteObj = allSites.find(s => s.name?.toLowerCase() === (logForm.siteName || '').toLowerCase());
     const clientId = siteObj?.clientUser?.id || "usr_client_1";
     const clientName = siteObj?.clientUser?.companyName || "Client Builder";
 
     const newLog = {
       id: `WLOG-${Date.now()}`,
       date: logForm.date,
-      workerId: currentUser.id,
-      workerName: currentUser.name,
-      workerPhone: currentUser.phone || "+91 97654 88210",
-      siteName: logForm.siteName,
+      workerId: currentUser?.id || "WRK-108",
+      workerName: currentUser?.name || "Site Worker",
+      workerPhone: currentUser?.phone || "+91 97654 88210",
+      siteName: logForm.siteName || "General Construction Site",
       clientCompanyName: clientName,
       clientId: clientId,
-      workType: logForm.workType,
-      floorLevel: logForm.floorLevel,
+      workType: logForm.section ? `Staging & Scaffolding (${logForm.section})` : "Staging & Scaffolding Work",
+      floorLevel: logForm.section || "Main Location",
       workCompletedSummary: logForm.workCompletedSummary,
-      areaCompletedSqft: Number(logForm.areaCompletedSqft),
-      volumeCompletedCum: Number(logForm.volumeCompletedCum),
-      laborCount: Number(logForm.laborCount),
-      hoursWorked: Number(logForm.hoursWorked),
+      areaCompletedSqft: 0,
+      volumeCompletedCum: 0,
+      laborCount: Number(logForm.laborCount) || 1,
+      hoursWorked: Number(logForm.hoursWorked) || 8,
       status: "pending_approval", // Awaiting client sign-off!
       approvedBy: "",
       approvalTimestamp: "",
@@ -144,15 +141,6 @@ export default function WorkerPortal({
           </div>
         </div>
 
-        {/* Assigned Sites bar */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.6rem', marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--border-light)', fontSize: '0.82rem' }}>
-          <span style={{ fontWeight: 700, color: 'var(--text-muted)' }}>Assigned Project Sites:</span>
-          {allSites.map(s => (
-            <span key={s.id} className="badge badge-neutral" style={{ fontSize: '0.72rem' }}>
-              📍 {s.name} ({s.location})
-            </span>
-          ))}
-        </div>
       </div>
 
       {/* TAB 1: UPLOAD DAILY WORK */}
@@ -170,87 +158,44 @@ export default function WorkerPortal({
           <form onSubmit={handleSubmitWorkLog}>
             <div className="grid-2">
               <div className="form-group">
-                <label className="form-label">Select Site</label>
-                <select 
-                  className="form-select"
-                  value={logForm.siteName}
-                  onChange={(e) => setLogForm({ ...logForm, siteName: e.target.value })}
-                >
-                  {allSites.map(s => (
-                    <option key={s.id} value={s.name}>{s.name} — ({s.clientUser?.companyName})</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Work Date</label>
-                <input 
-                  type="date" 
-                  className="form-input"
-                  value={logForm.date}
-                  onChange={(e) => setLogForm({ ...logForm, date: e.target.value })}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Type of Work Executed</label>
-                <select 
-                  className="form-select"
-                  value={logForm.workType}
-                  onChange={(e) => setLogForm({ ...logForm, workType: e.target.value })}
-                >
-                  <option value="Slab Shuttering & Staging">Slab Shuttering & Prop Staging</option>
-                  <option value="Cuplock Elevation & Staging">Cuplock Staging & Plastering Scaffolding</option>
-                  <option value="Column Box Clamping & Casting Prep">Column Box Clamping & Beam Bottom</option>
-                  <option value="De-shuttering & Dismantling">De-shuttering, Cleaning & Yard Return Stacking</option>
-                  <option value="External Safety Netting & Walkways">Safety Netting & Steel Walkway Challis</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Floor Level / Bay Location</label>
+                <label className="form-label">Site Name (Type or Select)</label>
                 <input 
                   type="text" 
                   className="form-input"
-                  placeholder="e.g. Tower B - 4th Floor Slab (Grid 2 to 6)"
-                  value={logForm.floorLevel}
-                  onChange={(e) => setLogForm({ ...logForm, floorLevel: e.target.value })}
+                  list="worker-site-suggestions"
+                  placeholder="Type or select site (e.g. Puravankara, SP Imperial...)"
+                  value={logForm.siteName}
+                  onChange={(e) => setLogForm({ ...logForm, siteName: e.target.value })}
                   required
+                />
+                <datalist id="worker-site-suggestions">
+                  {allSites.map(s => (
+                    <option key={s.id} value={s.name}>{s.name} — {s.location}</option>
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Section / Wing / Floor Location</label>
+                <input 
+                  type="text" 
+                  className="form-input"
+                  placeholder="e.g. Tower B - 5th Floor, Wing A, Grid 2-6"
+                  value={logForm.section}
+                  onChange={(e) => setLogForm({ ...logForm, section: e.target.value })}
                 />
               </div>
             </div>
 
-            {/* Output Progress Measurements */}
-            <div className="grid-2" style={{ background: '#f8fafc', padding: '1rem', borderRadius: 'var(--radius-md)', margin: '0.85rem 0' }}>
-              <div className="form-group">
-                <label className="form-label" style={{ color: 'var(--orange-primary)' }}>
-                  Total Area Completed Today (Sq.Ft)
-                </label>
-                <input 
-                  type="number" 
-                  className="form-input mono"
-                  placeholder="e.g. 1500"
-                  value={logForm.areaCompletedSqft}
-                  onChange={(e) => setLogForm({ ...logForm, areaCompletedSqft: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" style={{ color: '#2563eb' }}>
-                  Staging Volume Completed ($m^3$ - Cu.Metre)
-                </label>
-                <input 
-                  type="number" 
-                  className="form-input mono"
-                  placeholder="e.g. 140"
-                  value={logForm.volumeCompletedCum}
-                  onChange={(e) => setLogForm({ ...logForm, volumeCompletedCum: e.target.value })}
-                />
-              </div>
+            <div className="form-group" style={{ marginBottom: '1rem' }}>
+              <label className="form-label">Work Date</label>
+              <input 
+                type="date" 
+                className="form-input"
+                value={logForm.date}
+                onChange={(e) => setLogForm({ ...logForm, date: e.target.value })}
+                required
+              />
             </div>
 
             <div className="grid-2">
@@ -408,11 +353,11 @@ export default function WorkerPortal({
                       </span>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', margin: '0.75rem 0', background: '#f8fafc', padding: '0.6rem', borderRadius: 'var(--radius-sm)' }}>
-                      <div>Area: <strong>{log.areaCompletedSqft} Sq.Ft</strong></div>
-                      <div>Volume: <strong>{log.volumeCompletedCum} $m^3$</strong></div>
-                      <div>Crew: <strong>{log.laborCount} workers</strong></div>
-                      <div>Hours: <strong>{log.hoursWorked} hrs</strong></div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '0.6rem', margin: '0.75rem 0', background: '#f8fafc', padding: '0.6rem', borderRadius: 'var(--radius-sm)' }}>
+                      {Number(log.areaCompletedSqft) > 0 && <div>Area: <strong>{log.areaCompletedSqft} Sq.Ft</strong></div>}
+                      {Number(log.volumeCompletedCum) > 0 && <div>Volume: <strong>{log.volumeCompletedCum} m³</strong></div>}
+                      <div>Crew: <strong>{log.laborCount || 1} workers</strong></div>
+                      <div>Hours: <strong>{log.hoursWorked || 8} hrs</strong></div>
                     </div>
 
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-main)', background: '#ffffff', border: '1px solid var(--border-light)', padding: '0.6rem', borderRadius: 'var(--radius-sm)' }}>

@@ -19,11 +19,12 @@ export default function Navbar({
 }) {
   const pendingQuotations = (quotations || []).filter(q => q.status === 'requested').length;
 
-  // Ultra-simple 3 Core Tabs for Mobile App:
+  // Core Tabs for Mobile App & Top Nav:
   const tabs = [
     { id: 'dashboard', label: 'Yard & Stats', icon: Building2 },
     { id: 'billing', label: 'Bills & GST', icon: FileText, badge: 'Tax / Cash' },
-    { id: 'quotations', label: 'Work Orders', icon: Send, count: pendingQuotations }
+    { id: 'quotations', label: 'Work Orders', icon: Send, count: pendingQuotations },
+    { id: 'settings', label: 'More', icon: Settings }
   ];
 
   return (

@@ -10,6 +10,7 @@ import EWayBillView from './components/EWayBillView';
 import EInvoiceView from './components/EInvoiceView';
 import Contractors from './components/Contractors';
 import CompanySettings from './components/CompanySettings';
+import MoreSettingsPage from './components/MoreSettingsPage';
 import OwnerQuotationManager from './components/OwnerQuotationManager';
 import ClientPortal from './components/ClientPortal';
 import WorkerPortal from './components/WorkerPortal';
@@ -61,6 +62,8 @@ export default function App() {
   // Active view tab for Owner ERP
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState(() => localStorage.getItem('scaffbuild_language') || 'en');
 
   // Transient prefill for cross-navigation
   const [prefillInvoice, setPrefillInvoice] = useState(null);
@@ -479,21 +482,86 @@ export default function App() {
     localStorage.setItem('scaffbuild_current_user', JSON.stringify(adminUser));
   };
 
+  // Quick Demo Login for Client
+  const handleQuickClientLogin = () => {
+    const clientUser = {
+      id: '356bb2cd-ee50-42d6-ae58-97952b9f5dfe',
+      role: 'client',
+      name: 'ASG WIN INDIA Project Head',
+      title: 'Project Procurement Head',
+      companyName: 'ASG WIN INDIA PRIVATE LIMITED',
+      email: 'tempory2911@gmail.com',
+      phone: '+91 98200 99999',
+      avatar: '🏢',
+      sites: [
+        {
+          id: 'site_icon_micasa',
+          name: 'ICON MICASA JIGANI BOMMAANDRA LINK ROAD',
+          location: 'Jigani Bommasandra Link Road, Industrial Area',
+          city: 'Bangalore',
+          state: 'Karnataka',
+          siteEngineer: 'Er. Rajesh Patil',
+          phone: '+91 98200 99999',
+          dueAmount: 62500,
+          totalPcs: 65,
+          ratePerSqft: 3,
+          balanceAreaSqft: 25000,
+          lastDate: '26 Oct 26',
+          badgeType: 'Sqft Area Mix',
+          active: true,
+          slabAreaSqft: 18500
+        },
+        {
+          id: 'site_greenwood',
+          name: 'GREEN Wood High School',
+          location: 'Sarjapur Main Road, Chikkawadayarapura',
+          city: 'Bangalore',
+          state: 'Karnataka',
+          siteEngineer: 'Sanjay More',
+          phone: '+91 98334 11223',
+          dueAmount: 1484000,
+          totalPcs: 260,
+          ratePerSqft: 3,
+          balanceAreaSqft: 20000,
+          lastDate: '1 Oct 26',
+          badgeType: 'Sqft Area Mix',
+          active: true,
+          slabAreaSqft: 24000
+        }
+      ]
+    };
+    setCurrentUser(clientUser);
+    localStorage.setItem('scaffbuild_current_user', JSON.stringify(clientUser));
+  };
+
   return (
     <div className="app-container">
       
-      {/* Sleek Enterprise Portal Header */}
-      <RoleHeader 
-        currentUser={currentUser}
-        onLogout={handleLogout}
-        onOpenAuth={() => setIsAuthOpen(true)}
-      />
+      {/* Sleek Enterprise Portal Header (Hidden for Client to keep page clean & dedicated) */}
+      {currentUser?.role !== 'client' && (
+        <RoleHeader 
+          currentUser={currentUser}
+          setCurrentUser={setCurrentUser}
+          users={users}
+          setUsers={setUsers}
+          onLogout={handleLogout}
+          onOpenAuth={() => setIsAuthOpen(true)}
+          onOpenSettings={() => {
+            if (currentUser?.role === 'owner') {
+              setActiveTab('settings');
+            } else {
+              setIsSettingsModalOpen(true);
+            }
+          }}
+        />
+      )}
 
       {/* Guest / Logged-Out View: Full High-Converting Landing Page */}
       {!currentUser && (
         <LandingPage 
           onOpenAuth={() => setIsAuthOpen(true)}
           onQuickAdminLogin={handleQuickAdminLogin}
+          onQuickClientLogin={handleQuickClientLogin}
         />
       )}
 
@@ -502,6 +570,7 @@ export default function App() {
         <main className="main-content">
           <ClientPortal 
             currentUser={currentUser}
+            setCurrentUser={setCurrentUser}
             users={users}
             setUsers={setUsers}
             quotations={quotations}
@@ -509,6 +578,15 @@ export default function App() {
             workerLogs={workerLogs}
             setWorkerLogs={setWorkerLogs}
             company={company}
+            setCompany={setCompany}
+            inventory={inventory}
+            setInventory={setInventory}
+            challans={challans}
+            invoices={invoices}
+            onLogout={handleLogout}
+            onOpenSettings={() => setIsSettingsModalOpen(true)}
+            currentLanguage={currentLanguage}
+            setCurrentLanguage={setCurrentLanguage}
           />
         </main>
       )}
@@ -644,16 +722,66 @@ export default function App() {
             )}
 
             {activeTab === 'settings' && (
-              <CompanySettings 
+              <MoreSettingsPage 
+                currentUser={currentUser}
+                setCurrentUser={setCurrentUser}
                 company={company}
                 setCompany={setCompany}
+                users={users}
+                setUsers={setUsers}
+                inventory={inventory}
+                setInventory={setInventory}
+                clients={clients}
+                challans={challans}
+                invoices={invoices}
+                quotations={quotations}
+                onLogout={handleLogout}
+                onBack={() => setActiveTab('dashboard')}
                 onResetAllData={handleResetAllData}
                 onExportAllData={handleExportAllData}
                 onImportAllData={handleImportAllData}
+                currentLanguage={currentLanguage}
+                onLanguageChange={setCurrentLanguage}
               />
             )}
           </main>
         </>
+      )}
+
+      {/* Settings "More" Modal (For Clients & Workers) */}
+      {isSettingsModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: '#ffffff',
+          zIndex: 9998,
+          overflowY: 'auto'
+        }}>
+          <MoreSettingsPage 
+            currentUser={currentUser}
+            setCurrentUser={setCurrentUser}
+            company={company}
+            setCompany={setCompany}
+            users={users}
+            setUsers={setUsers}
+            inventory={inventory}
+            setInventory={setInventory}
+            clients={clients}
+            challans={challans}
+            invoices={invoices}
+            quotations={quotations}
+            onLogout={handleLogout}
+            onBack={() => setIsSettingsModalOpen(false)}
+            onResetAllData={handleResetAllData}
+            onExportAllData={handleExportAllData}
+            onImportAllData={handleImportAllData}
+            currentLanguage={currentLanguage}
+            onLanguageChange={setCurrentLanguage}
+          />
+        </div>
       )}
 
       {/* Multi-User Switch & Registration Modal */}

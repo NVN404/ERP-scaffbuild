@@ -247,11 +247,11 @@ export default function AuthModal({
         role: registerRole, // 'client' or 'worker'
         name: regForm.name.trim(),
         phone: regForm.phone.trim(),
-        companyName: regForm.companyName.trim(),
-        gstin: regForm.gstin.trim(),
+        companyName: registerRole === 'client' ? '' : (regForm.companyName?.trim() || ''),
+        gstin: registerRole === 'client' ? '' : (regForm.gstin?.trim() || ''),
         trade: regForm.trade,
-        siteName: regForm.siteName.trim() || 'Main Site',
-        siteLocation: regForm.siteLocation.trim()
+        siteName: registerRole === 'client' ? '' : (regForm.siteName?.trim() || ''),
+        siteLocation: ''
       });
 
       if (user) {
@@ -582,50 +582,7 @@ export default function AuthModal({
                 </div>
               </div>
 
-              {/* Client/Builder Details */}
-              {registerRole === 'client' && (
-                <div style={{ background: '#f8fafc', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.5rem', color: '#2563eb' }}>
-                    🏢 Construction Company / Builder Information
-                  </div>
-                  <div className="grid-2">
-                    <div className="form-group">
-                      <label className="form-label">Company / Builder Name</label>
-                      <input 
-                        type="text" 
-                        className="form-input" 
-                        placeholder="e.g. L&T Construction"
-                        value={regForm.companyName}
-                        onChange={(e) => setRegForm({ ...regForm, companyName: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">GSTIN (Optional)</label>
-                      <input 
-                        type="text" 
-                        className="form-input mono" 
-                        placeholder="27AAAAA0000A1Z5"
-                        value={regForm.gstin}
-                        onChange={(e) => setRegForm({ ...regForm, gstin: e.target.value.toUpperCase() })}
-                      />
-                    </div>
-                  </div>
-                  <div className="form-group" style={{ marginTop: '0.5rem' }}>
-                    <label className="form-label">Primary Project / Site Name</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      placeholder="e.g. Imperial Heights Tower B"
-                      value={regForm.siteName}
-                      onChange={(e) => setRegForm({ ...regForm, siteName: e.target.value })}
-                      required
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Worker Details */}
+              {/* Worker Details (Only shown for worker role) */}
               {registerRole === 'worker' && (
                 <div style={{ background: '#f8fafc', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)' }}>
                   <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: '0.5rem', color: '#059669' }}>
